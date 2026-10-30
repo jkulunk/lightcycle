@@ -15,6 +15,8 @@ export class CameraRig {
     this.currentPos = new THREE.Vector3(0, 50, 50);
     this.currentLookAt = new THREE.Vector3(0, 0, 0);
     this.orbitAngle = 0;
+    this.pauseOrbitAngle = 0;
+    this.victoryOrbitAngle = 0;
   }
 
   resize(aspect) {
@@ -153,6 +155,8 @@ export class CameraRig {
     }
 
     this.camera.lookAt(target.lookAt);
+    this.currentPos.copy(this.camera.position);
+    this.currentLookAt.copy(target.lookAt);
     if (target.roll) {
       this.camera.rotation.z += target.roll * 0.35;
     }
@@ -165,5 +169,68 @@ export class CameraRig {
     const camZ = focusPoint.z + Math.sin(this.orbitAngle) * radius;
     this.camera.position.lerp(new THREE.Vector3(camX, 11, camZ), 1 - Math.exp(-4 * dt));
     this.camera.lookAt(focusPoint.x, 1.2, focusPoint.z);
+  }
+
+  /**
+   * Pause Free-Orbit / Inspection Camera:
+   * Smoothly orbits around the arena center or player cycle at an elevated vantage point (Y = 65)
+   * so the player can inspect the 3D neon trail labyrinth from any angle while paused.
+   */
+  updatePauseCamera(focusPoint, dt = 0.016, orbitInput = 0) {
+    if (focusPoint && typeof focusPoint.setFirstPersonVisibility === 'function') {
+      focusPoint.setFirstPersonVisibility(false);
+    }
+
+    const fx = focusPoint
+      ? (focusPoint.pos ? focusPoint.pos.x : (focusPoint.x || 0))
+      : 0;
+    const fz = focusPoint
+      ? (focusPoint.pos ? focusPoint.pos.y : (focusPoint.z !== undefined ? focusPoint.z : (focusPoint.y || 0)))
+      : 0;
+
+    this.pauseOrbitAngle += (orbitInput || 0.25) * dt;
+    const radius = 92;
+    const height = 65;
+
+    const camX = fx + Math.cos(this.pauseOrbitAngle) * radius;
+    const camZ = fz + Math.sin(this.pauseOrbitAngle) * radius;
+    const targetPos = new THREE.Vector3(camX, height, camZ);
+    const targetLookAt = new THREE.Vector3(fx, 1.5, fz);
+
+    const alpha = 1 - Math.exp(-4.5 * dt);
+    this.camera.position.lerp(targetPos, alpha);
+    this.currentLookAt.lerp(targetLookAt, alpha);
+    this.camera.lookAt(this.currentLookAt);
+  }
+
+  /**
+   * Victory Celebration Close-Up Camera:
+   * Orbits closely (radius = 6.5, height = 2.6) around the winning cycle so the player
+   * gets a close-up view of the LEGO Minifigure popping open the canopy and cheering
+   * with the glowing Control Rod overhead.
+   */
+  updateVictoryCamera(winnerCycle, dt = 0.016) {
+    if (!winnerCycle) return;
+
+    if (typeof winnerCycle.setFirstPersonVisibility === 'function') {
+      winnerCycle.setFirstPersonVisibility(false);
+    }
+
+    const wx = winnerCycle.pos ? winnerCycle.pos.x : (winnerCycle.x || 0);
+    const wz = winnerCycle.pos ? winnerCycle.pos.y : (winnerCycle.z !== undefined ? winnerCycle.z : (winnerCycle.y || 0));
+
+    this.victoryOrbitAngle += dt * 0.75;
+    const radius = 6.5;
+    const height = 2.6;
+
+    const camX = wx + Math.cos(this.victoryOrbitAngle) * radius;
+    const camZ = wz + Math.sin(this.victoryOrbitAngle) * radius;
+    const targetPos = new THREE.Vector3(camX, height, camZ);
+    const targetLookAt = new THREE.Vector3(wx, 1.45, wz);
+
+    const alpha = 1 - Math.exp(-5.5 * dt);
+    this.camera.position.lerp(targetPos, alpha);
+    this.currentLookAt.lerp(targetLookAt, alpha);
+    this.camera.lookAt(this.currentLookAt);
   }
 }

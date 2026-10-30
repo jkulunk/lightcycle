@@ -24,7 +24,7 @@ class TronGame {
     this.renderer.setClearColor(0x03060e);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x03060e, 0.0028);
+    this.scene.fog = new THREE.FogExp2(0x03060e, 0.0025);
 
     // Lighting
     const ambient = new THREE.AmbientLight(0x284b7a, 1.3);
@@ -53,35 +53,63 @@ class TronGame {
 
       this.bloomPass = new THREE.UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.75, // strength
-        0.45, // radius
-        0.22  // threshold
+        0.75,
+        0.45,
+        0.22
       );
       this.composer.addPass(this.bloomPass);
     }
 
-    // Create Player (Cyan) & CPU (Orange) Light Cycles facing each other
+    // Create Player (Cyan) & Pool of up to 3 CPU Opponents (Orange, Yellow, Red-Magenta)
     this.player = new LightCycle(this.scene, {
       name: 'PLAYER',
       color: 0x00f3ff,
+      secondaryColor: 0x99ffff,
       isPlayer: true,
-      startX: -48,
+      startX: -52,
       startZ: 0,
       startDir: new THREE.Vector2(1, 0)
     });
 
-    this.ai = new LightCycle(this.scene, {
-      name: 'CPU',
-      color: 0xff6600,
-      isPlayer: false,
-      startX: 48,
-      startZ: 0,
-      startDir: new THREE.Vector2(-1, 0)
-    });
+    this.aiPool = [
+      new LightCycle(this.scene, {
+        name: 'SARK (ORANGE)',
+        color: 0xff6600,
+        secondaryColor: 0xffcc66,
+        isPlayer: false,
+        startX: 52,
+        startZ: 0,
+        startDir: new THREE.Vector2(-1, 0)
+      }),
+      new LightCycle(this.scene, {
+        name: 'CLU (YELLOW)',
+        color: 0xffe600,
+        secondaryColor: 0xffff99,
+        isPlayer: false,
+        startX: 0,
+        startZ: -52,
+        startDir: new THREE.Vector2(0, 1)
+      }),
+      new LightCycle(this.scene, {
+        name: 'GUARD (CRIMSON)',
+        color: 0xff1a66,
+        secondaryColor: 0xff99bb,
+        isPlayer: false,
+        startX: 0,
+        startZ: 52,
+        startDir: new THREE.Vector2(0, -1)
+      })
+    ];
+
+    // Game Mode: 'DUEL' (1v1) | 'BATTLE' (4-Bike Free-For-All) | 'GAUNTLET' (Endless Survival Waves)
+    this.gameMode = 'DUEL';
+    this.activeAICycles = [this.aiPool[0]];
+    this.gauntletWave = 1;
+    this.powerUpSpawnTimer = 0;
 
     this.introSequence = new IntroSequence(
       this.player,
-      this.ai,
+      this.activeAICycles,
       this.cameraRig,
       this.audio,
       {
@@ -90,11 +118,13 @@ class TronGame {
       }
     );
 
-    // State: 'MENU' | 'INTRO' | 'PLAYING' | 'DEREZZ'
+    // State: 'MENU' | 'INTRO' | 'PLAYING' | 'PAUSED' | 'VICTORY' | 'DEREZZ'
     this.state = 'MENU';
     this.playerScore = 0;
     this.aiScore = 0;
     this.crashPoint = new THREE.Vector3();
+    this.winnerCycle = null;
+    this.pauseOrbitDir = 0;
 
     this.bindUI();
     this.bindInput();
@@ -125,7 +155,18 @@ class TronGame {
         card.classList.add('selected');
         const diff = card.getAttribute('data-diff-select');
         this.aiController.setDifficulty(diff);
-        document.getElementById('cpu-label').textContent = `CPU (${diff})`;
+        this.updateModeLabel();
+      });
+    });
+
+    // Single-Player Arena Mode Selection Cards (1v1 Duel, 4-Bike Battle, Gauntlet Waves)
+    const modeCards = document.querySelectorAll('[data-mode-select]');
+    modeCards.forEach((card) => {
+      card.addEventListener('click', () => {
+        modeCards.forEach((c) => c.classList.remove('selected'));
+        card.classList.add('selected');
+        this.gameMode = card.getAttribute('data-mode-select');
+        this.updateModeLabel();
       });
     });
 
@@ -153,6 +194,15 @@ class TronGame {
       hudSoundBtn.blur();
     });
 
+    // Pause Button in Top HUD
+    const hudPauseBtn = document.getElementById('hud-pause-btn');
+    if (hudPauseBtn) {
+      hudPauseBtn.addEventListener('click', () => {
+        this.togglePause();
+        hudPauseBtn.blur();
+      });
+    }
+
     // Launch Match Button
     document.getElementById('launch-btn').addEventListener('click', (e) => {
       e.currentTarget.blur();
@@ -171,21 +221,31 @@ class TronGame {
       document.getElementById('gameover-modal').classList.add('hidden');
       document.getElementById('start-modal').classList.remove('hidden');
       this.state = 'MENU';
+      this.audio.stopMusic();
       this.syncCockpitHUDVisibility();
     });
   }
 
-  syncCockpitHUDVisibility() {
-    const isPlaying = this.state === 'PLAYING';
-    // Top & Bottom HUD bars only appear during active gameplay (after the intro animation)
-    document.getElementById('hud-top').classList.toggle('hud-hidden', !isPlaying);
-    document.getElementById('hud-bottom').classList.toggle('hud-hidden', !isPlaying);
+  updateModeLabel() {
+    const diff = this.aiController.difficulty;
+    const modeTag =
+      this.gameMode === 'BATTLE'
+        ? '4-BIKE GRID'
+        : this.gameMode === 'GAUNTLET'
+        ? `WAVE ${this.gauntletWave}`
+        : '1v1 DUEL';
+    document.getElementById('cpu-label').textContent = `${modeTag} (${diff})`;
+  }
 
-    // First-Person Cockpit HUD only appears during active gameplay in First-Person mode
+  syncCockpitHUDVisibility() {
+    const isPlayingOrPaused = this.state === 'PLAYING' || this.state === 'PAUSED';
+    document.getElementById('hud-top').classList.toggle('hud-hidden', !isPlayingOrPaused);
+    document.getElementById('hud-bottom').classList.toggle('hud-hidden', !isPlayingOrPaused);
+
     const cockpit = document.getElementById('cockpit-overlay');
     cockpit.classList.toggle(
       'active',
-      isPlaying && this.cameraRig.mode === VIEW_MODES.FIRST_PERSON
+      this.state === 'PLAYING' && this.cameraRig.mode === VIEW_MODES.FIRST_PERSON
     );
   }
 
@@ -193,6 +253,7 @@ class TronGame {
     this.audio.setMuted(!enabled);
     if (enabled && this.state === 'PLAYING') {
       this.audio.startEngine();
+      this.audio.startMusic();
     }
     const soundCheckbox = document.getElementById('sound-checkbox');
     if (soundCheckbox) {
@@ -205,26 +266,51 @@ class TronGame {
     }
   }
 
+  togglePause() {
+    const countBanner = document.getElementById('countdown-banner');
+    const stageBanner = document.getElementById('intro-stage-banner');
+    const pauseBtn = document.getElementById('hud-pause-btn');
+
+    if (this.state === 'PLAYING') {
+      this.state = 'PAUSED';
+      this.audio.stopEngine();
+      this.audio.stopMusic();
+      countBanner.style.display = 'block';
+      countBanner.textContent = 'PAUSED';
+      stageBanner.style.display = 'block';
+      stageBanner.textContent = 'FREE ORBIT INSPECTION // [A/D] ROTATE CAMERA • [P / ESC] RESUME';
+      if (pauseBtn) pauseBtn.textContent = 'RESUME [P]';
+      this.syncCockpitHUDVisibility();
+    } else if (this.state === 'PAUSED') {
+      this.state = 'PLAYING';
+      countBanner.style.display = 'none';
+      stageBanner.style.display = 'none';
+      if (pauseBtn) pauseBtn.textContent = 'PAUSE [P]';
+      if (!this.audio.muted) {
+        this.audio.startEngine();
+        this.audio.startMusic();
+      }
+      this.syncCockpitHUDVisibility();
+    }
+  }
+
   setCameraView(mode) {
     this.cameraRig.setMode(mode, this.player, (activeMode) => {
-      // Update HUD buttons
       document.querySelectorAll('[data-hud-cam]').forEach((btn) => {
         btn.classList.toggle('active', btn.getAttribute('data-hud-cam') === activeMode);
       });
-      // Update Start Modal cards
       document.querySelectorAll('[data-cam-select]').forEach((card) => {
         card.classList.toggle('selected', card.getAttribute('data-cam-select') === activeMode);
       });
       this.syncCockpitHUDVisibility();
 
-      // Update bottom control hint text
       const hint = document.getElementById('controls-hint-text');
       if (activeMode === VIEW_MODES.BIRDS_EYE) {
         hint.innerHTML =
-          '<strong>BIRD\'S-EYE CONTROLS:</strong> [W/A/S/D] or [ARROWS] Cardinal Direction &bull; [SHIFT/SPACE] Boost &bull; [1/2/3 or C] Switch View';
+          '<strong>BIRD\'S-EYE:</strong> [W/A/S/D or ARROWS] Steer &bull; [SHIFT/SPACE] Boost &bull; [P] Pause &bull; [M] Sound &bull; [1/2/3/C] View';
       } else {
         hint.innerHTML =
-          '<strong>3D STEERING:</strong> [A / &larr;] Turn 90&deg; Left &bull; [D / &rarr;] Turn 90&deg; Right &bull; [W / &uarr; / SHIFT] Boost &bull; [1/2/3 or C] Switch View';
+          '<strong>3D STEERING:</strong> [A/&larr;] Left &bull; [D/&rarr;] Right &bull; [W/&uarr;/SHIFT] Boost &bull; [S/&darr;] Brake &bull; [P] Pause &bull; [1/2/3/C] View';
       }
     });
   }
@@ -248,7 +334,7 @@ class TronGame {
           return;
         }
 
-        // Live Camera Switching anytime via 1 / 2 / 3 or C, and Sound Mute via M
+        // Camera Switching & Sound & Pause
         if (code === 'Digit1' || key === '1') {
           this.setCameraView(VIEW_MODES.BIRDS_EYE);
           return;
@@ -264,16 +350,26 @@ class TronGame {
         } else if (code === 'KeyM' || key === 'm') {
           this.setSoundEnabled(this.audio.muted);
           return;
+        } else if (code === 'KeyP' || key === 'p' || code === 'Escape' || key === 'escape') {
+          if (this.state === 'PLAYING' || this.state === 'PAUSED') {
+            e.preventDefault();
+            this.togglePause();
+            return;
+          }
         }
 
-        // Start from Menu with Space or Enter
+        if (this.state === 'PAUSED') {
+          if (isLeft) this.pauseOrbitDir = -1.4;
+          if (isRight) this.pauseOrbitDir = 1.4;
+          return;
+        }
+
         if (this.state === 'MENU' && (isSpace || isEnter)) {
           e.preventDefault();
           this.startNewRound();
           return;
         }
 
-        // Skip Intro or Queue Initial Turn during Intro
         if (this.state === 'INTRO') {
           if (isSpace || isEnter) {
             e.preventDefault();
@@ -288,8 +384,7 @@ class TronGame {
           return;
         }
 
-        // Rematch on Space or Enter after Derezz
-        if (this.state === 'DEREZZ' && (isSpace || isEnter)) {
+        if ((this.state === 'DEREZZ' || this.state === 'VICTORY') && (isSpace || isEnter)) {
           e.preventDefault();
           this.startNewRound();
           return;
@@ -302,21 +397,24 @@ class TronGame {
           const effDir = this.player.getEffectivePlannedDirection();
           if (isUp) {
             e.preventDefault();
-            // If moving horizontally, turn North (-Z); if already vertical, engage boost
             if (Math.abs(effDir.x) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(0, -1));
-            } else {
+            } else if (effDir.y < -0.5) {
               this.player.isBoosting = true;
+            } else {
+              this.player.isBraking = true;
             }
           } else if (isDown) {
             e.preventDefault();
-            // If moving horizontally, turn South (+Z)
             if (Math.abs(effDir.x) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(0, 1));
+            } else if (effDir.y > 0.5) {
+              this.player.isBoosting = true;
+            } else {
+              this.player.isBraking = true;
             }
           } else if (isLeft) {
             e.preventDefault();
-            // If moving vertically, turn West (-X); if moving horizontally, relative turn Left
             if (Math.abs(effDir.y) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(-1, 0));
             } else {
@@ -324,7 +422,6 @@ class TronGame {
             }
           } else if (isRight) {
             e.preventDefault();
-            // If moving vertically, turn East (+X); if moving horizontally, relative turn Right
             if (Math.abs(effDir.y) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(1, 0));
             } else {
@@ -335,7 +432,7 @@ class TronGame {
             this.player.isBoosting = true;
           }
         } else {
-          // Relative 90° steering for Over-the-Shoulder and First-Person views
+          // 3D Views: A/D = Turn Left/Right, W/Up/Shift/Space = Boost, S/Down = Speed Brake!
           if (isLeft) {
             e.preventDefault();
             this.player.queueTurn('LEFT');
@@ -345,6 +442,14 @@ class TronGame {
           } else if (isUp || isShift || isSpace) {
             e.preventDefault();
             this.player.isBoosting = true;
+            this.player.isBraking = false;
+          } else if (isDown) {
+            e.preventDefault();
+            if (!this.player.isBraking) {
+              this.audio.playBrake();
+            }
+            this.player.isBraking = true;
+            this.player.isBoosting = false;
           }
         }
       },
@@ -367,6 +472,19 @@ class TronGame {
       ) {
         this.player.isBoosting = false;
       }
+      if (code === 'KeyS' || code === 'ArrowDown' || key === 's' || key === 'arrowdown') {
+        this.player.isBraking = false;
+      }
+      if (
+        code === 'KeyA' ||
+        code === 'ArrowLeft' ||
+        code === 'KeyD' ||
+        code === 'ArrowRight' ||
+        key === 'a' ||
+        key === 'd'
+      ) {
+        this.pauseOrbitDir = 0;
+      }
     });
   }
 
@@ -376,8 +494,30 @@ class TronGame {
     document.getElementById('proximity-warning').style.display = 'none';
 
     this.particles.clear();
+    this.arena.clearWallBreaches();
+    this.arena.clearPowerUps();
+    this.arena.spawnArenaObstacles(4);
+    this.spawnInitialPowerUps();
+
     this.player.reset();
-    this.ai.reset();
+    this.gauntletWave = 1;
+    this.updateModeLabel();
+
+    // Configure active AI Opponents based on chosen Game Mode
+    const aiCount = this.gameMode === 'BATTLE' ? 3 : 1;
+    this.activeAICycles = [];
+    this.aiPool.forEach((ai, idx) => {
+      if (idx < aiCount) {
+        ai.reset();
+        this.activeAICycles.push(ai);
+      } else {
+        ai.alive = false;
+        ai.root.visible = false;
+        ai.clearTrails();
+      }
+    });
+
+    this.introSequence.setAICycles(this.activeAICycles);
 
     const playIntro = document.getElementById('intro-checkbox').checked;
     if (playIntro) {
@@ -386,6 +526,106 @@ class TronGame {
       this.introSequence.start();
     } else {
       this.beginActiveRace();
+    }
+  }
+
+  spawnInitialPowerUps() {
+    const types = ['OVERCHARGE', 'PHASE_SHIFT', 'TRAIL_ERASER'];
+    const spots = [
+      { x: 0, z: 0 },
+      { x: -32, z: -32 },
+      { x: 32, z: 32 }
+    ];
+    spots.forEach((pt, idx) => {
+      this.arena.spawnPowerUp(types[idx % types.length], pt.x, pt.z);
+    });
+    this.powerUpSpawnTimer = 7.0;
+  }
+
+  spawnGauntletWave() {
+    this.gauntletWave++;
+    this.updateModeLabel();
+    this.audio.playVictoryFanfare();
+    this.audio.setMusicIntensity(Math.min(1.8, 1.0 + this.gauntletWave * 0.15));
+
+    // Show Wave Banner
+    const stageBanner = document.getElementById('intro-stage-banner');
+    stageBanner.style.display = 'block';
+    stageBanner.textContent = `GAUNTLET WAVE ${this.gauntletWave} // NEW CPU CHALLENGERS REZZING ON GRID!`;
+    setTimeout(() => {
+      if (this.state === 'PLAYING') stageBanner.style.display = 'none';
+    }, 2200);
+
+    // Spawn 1 or 2 fresh AI cycles at safe spawn positions
+    const count = Math.min(3, 1 + Math.floor(this.gauntletWave / 2));
+    this.activeAICycles = [];
+    const safeSpawns = [
+      { x: 60, z: 0, dir: new THREE.Vector2(-1, 0) },
+      { x: 0, z: -60, dir: new THREE.Vector2(0, 1) },
+      { x: 0, z: 60, dir: new THREE.Vector2(0, -1) }
+    ];
+
+    for (let i = 0; i < count; i++) {
+      const ai = this.aiPool[i];
+      const sp = safeSpawns[i];
+      // Pick spawn farthest from player
+      ai.startX = this.player.pos.x > 0 ? -60 : sp.x;
+      ai.startZ = sp.z;
+      ai.startDir.copy(sp.dir);
+      ai.reset();
+      ai.setCompletedIntroState();
+      this.activeAICycles.push(ai);
+    }
+  }
+
+  checkPowerUpPickups(allCycles) {
+    for (let i = this.arena.powerUps.length - 1; i >= 0; i--) {
+      const pu = this.arena.powerUps[i];
+      for (const cycle of allCycles) {
+        if (!cycle.alive) continue;
+        const dist = Math.hypot(cycle.pos.x - pu.x, cycle.pos.z - pu.z);
+        if (dist < 2.6) {
+          this.applyPowerUp(cycle, pu);
+          this.arena.removePowerUp(pu);
+          break;
+        }
+      }
+    }
+  }
+
+  applyPowerUp(cycle, pu) {
+    this.particles.spawnPowerUpBurst(pu.x, pu.z, pu.color);
+    if (cycle.isPlayer) {
+      this.audio.playPowerUp(pu.type);
+    }
+
+    const stageBanner = document.getElementById('intro-stage-banner');
+    if (pu.type === 'OVERCHARGE') {
+      cycle.boostEnergy = 100;
+      if (cycle.isPlayer) {
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // TURBINE OVERCHARGE (100% BOOST)';
+      }
+    } else if (pu.type === 'PHASE_SHIFT') {
+      cycle.phaseShiftTimer = 3.5;
+      if (cycle.isPlayer) {
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // PHASE-SHIFT ACTIVE (3.5s TRAIL IMMUNITY!)';
+      }
+    } else if (pu.type === 'TRAIL_ERASER') {
+      if (cycle.isPlayer) {
+        this.activeAICycles.forEach((ai) => ai.clearTrails());
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // ENEMY LIGHT TRAILS DEREZZED!';
+      } else {
+        this.player.clearTrails();
+      }
+    }
+
+    if (cycle.isPlayer) {
+      setTimeout(() => {
+        if (this.state === 'PLAYING') stageBanner.style.display = 'none';
+      }, 1800);
     }
   }
 
@@ -401,8 +641,9 @@ class TronGame {
   beginActiveRace() {
     this.state = 'PLAYING';
     this.player.setCompletedIntroState();
-    this.ai.setCompletedIntroState();
+    this.activeAICycles.forEach((ai) => ai.setCompletedIntroState());
     this.syncCockpitHUDVisibility();
+
     const stageBanner = document.getElementById('intro-stage-banner');
     const countBanner = document.getElementById('countdown-banner');
     stageBanner.style.display = 'none';
@@ -416,66 +657,78 @@ class TronGame {
 
     this.player.setFirstPersonVisibility(this.cameraRig.mode === VIEW_MODES.FIRST_PERSON);
     this.audio.startEngine();
+    this.audio.startMusic();
   }
 
-  triggerDerezz(playerHit, aiHit) {
-    this.state = 'DEREZZ';
-    this.syncCockpitHUDVisibility();
-    this.audio.playDerezz();
+  triggerMatchEnd(outcome, breachCycle = null) {
+    this.audio.stopEngine();
+    this.audio.stopMusic();
     document.getElementById('proximity-warning').style.display = 'none';
 
     let title = '';
     let subtitle = '';
 
-    if (playerHit && aiHit) {
+    if (outcome === 'BREACH') {
+      this.state = 'VICTORY';
+      this.playerScore++;
+      this.winnerCycle = breachCycle || this.player;
+      this.audio.playWallBreach();
+      this.audio.playVictoryFanfare();
+      title = 'GRID WALL BREACHED — ESCAPED!';
+      subtitle = '1982 FLYNN ESCAPE ACHIEVED // OFF THE GRID!';
+    } else if (outcome === 'PLAYER_WIN') {
+      this.state = 'VICTORY';
+      this.playerScore++;
+      this.winnerCycle = this.player;
+      this.audio.playVictoryFanfare();
+      title = 'ALL CPUS DEREZZED — VICTORY!';
+      subtitle = 'LEGO USER CLAIMS THE GAME GRID';
+    } else if (outcome === 'DRAW') {
+      this.state = 'DEREZZ';
+      this.audio.playDerezz();
       title = 'SIMULTANEOUS DEREZZ';
       subtitle = 'MUTUAL GRID COLLISION // DRAW ROUND';
-      this.player.root.visible = false;
-      this.ai.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
-      this.particles.spawnDerezzExplosion(this.ai.pos.x, this.ai.pos.y, 0xff6600);
-      this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
-    } else if (playerHit) {
-      this.aiScore++;
-      title = 'USER DEREZZED';
-      subtitle = 'CPU CLAIMS THE GRID SECTOR';
-      this.player.alive = false;
-      this.player.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
-      this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
     } else {
-      this.playerScore++;
-      title = 'CPU DEREZZED — VICTORY!';
-      subtitle = 'USER DOMINATES THE GRID';
-      this.ai.alive = false;
-      this.ai.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.ai.pos.x, this.ai.pos.y, 0xff6600);
-      this.crashPoint.set(this.ai.pos.x, 0, this.ai.pos.y);
+      this.state = 'DEREZZ';
+      this.aiScore++;
+      this.audio.playDerezz();
+      title = 'USER DEREZZED';
+      subtitle =
+        this.gameMode === 'GAUNTLET'
+          ? `SURVIVED TO GAUNTLET WAVE ${this.gauntletWave}`
+          : 'CPU CLAIMS THE GRID SECTOR';
     }
 
+    this.syncCockpitHUDVisibility();
     document.getElementById('score-player').textContent = `P1: ${this.playerScore}`;
     document.getElementById('score-ai').textContent = `CPU: ${this.aiScore}`;
 
     const titleEl = document.getElementById('gameover-title');
     titleEl.textContent = title;
-    titleEl.style.color = playerHit && !aiHit ? '#ff6600' : '#00f3ff';
+    titleEl.style.color = outcome === 'CPU_WIN' ? '#ff6600' : '#00f3ff';
     document.getElementById('gameover-sub').textContent = subtitle;
 
     setTimeout(() => {
-      if (this.state === 'DEREZZ') {
+      if (this.state === 'DEREZZ' || this.state === 'VICTORY') {
         document.getElementById('gameover-modal').classList.remove('hidden');
       }
-    }, 1150);
+    }, 1500);
   }
 
   updateHUD(allSegments) {
-    // Boost Meter & Speed Readout
     const boostFill = document.getElementById('boost-fill');
     boostFill.style.width = `${Math.round(this.player.boostEnergy)}%`;
 
     const kmh = Math.round(this.player.currentSpeed * 3.4);
-    const slipTag = this.player.inSlipstream ? ' [SLIPSTREAM +]' : '';
-    document.getElementById('speed-readout').textContent = `${kmh} KM/H${slipTag}`;
+    let statusTag = '';
+    if (this.player.phaseShiftTimer > 0) {
+      statusTag = ` [PHASE ${this.player.phaseShiftTimer.toFixed(1)}s]`;
+    } else if (this.player.inSlipstream) {
+      statusTag = ' [SLIPSTREAM +]';
+    } else if (this.player.isBraking) {
+      statusTag = ' [BRAKE]';
+    }
+    document.getElementById('speed-readout').textContent = `${kmh} KM/H${statusTag}`;
 
     // Forward Wall Proximity Warning & First-Person Tactical HUD
     const warnEl = document.getElementById('proximity-warning');
@@ -492,7 +745,8 @@ class TronGame {
       fx,
       fz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
     const leftClearance = this.collision.raycastDistance(
       this.player.pos.x,
@@ -500,7 +754,8 @@ class TronGame {
       lx,
       lz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
     const rightClearance = this.collision.raycastDistance(
       this.player.pos.x,
@@ -508,7 +763,8 @@ class TronGame {
       rx,
       rz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
 
     if (this.state === 'PLAYING' && this.cameraRig.mode !== VIEW_MODES.BIRDS_EYE) {
@@ -523,15 +779,13 @@ class TronGame {
     }
 
     if (this.cameraRig.mode === VIEW_MODES.FIRST_PERSON) {
-      this.updateFirstPersonHUD(fwdClearance, leftClearance, rightClearance, kmh, slipTag);
+      this.updateFirstPersonHUD(fwdClearance, leftClearance, rightClearance, kmh, statusTag);
     }
 
-    // Render 2D Radar Minimap
     this.renderRadar();
   }
 
-  updateFirstPersonHUD(fwdDist, leftDist, rightDist, kmh, slipTag) {
-    // 1. Cardinal Compass Heading
+  updateFirstPersonHUD(fwdDist, leftDist, rightDist, kmh, statusTag) {
     const dx = this.player.dir.x;
     const dz = this.player.dir.y;
     let headingText = 'EAST (090°)';
@@ -541,18 +795,30 @@ class TronGame {
     else if (dz > 0.5) headingText = 'SOUTH (180°)';
     document.getElementById('fp-heading-val').textContent = headingText;
 
-    // 2. Relative Bearing to CPU Opponent
-    const toAiX = this.ai.pos.x - this.player.pos.x;
-    const toAiZ = this.ai.pos.y - this.player.pos.y;
-    const aiDist = Math.round(Math.hypot(toAiX, toAiZ));
-    const fwdDot = toAiX * dx + toAiZ * dz;
-    const rightDot = toAiX * -dz + toAiZ * dx;
+    // Nearest living AI Cycle bearing
+    let nearestAI = this.activeAICycles.find((a) => a.alive) || this.activeAICycles[0];
+    let bestDist = Infinity;
+    this.activeAICycles.forEach((a) => {
+      if (!a.alive) return;
+      const d = Math.hypot(a.pos.x - this.player.pos.x, a.pos.y - this.player.pos.y);
+      if (d < bestDist) {
+        bestDist = d;
+        nearestAI = a;
+      }
+    });
 
-    let verticalRel = Math.abs(fwdDot) < 10 ? '' : (fwdDot > 0 ? 'AHEAD ' : 'BEHIND ');
-    let sideRel = Math.abs(rightDot) < 10 ? 'CENTER' : (rightDot > 0 ? 'RIGHT' : 'LEFT');
-    document.getElementById('fp-enemy-bearing').textContent = `CPU: ${verticalRel}${sideRel} (${aiDist}m)`;
+    if (nearestAI) {
+      const toAiX = nearestAI.pos.x - this.player.pos.x;
+      const toAiZ = nearestAI.pos.y - this.player.pos.y;
+      const aiDist = Math.round(Math.hypot(toAiX, toAiZ));
+      const fwdDot = toAiX * dx + toAiZ * dz;
+      const rightDot = toAiX * -dz + toAiZ * dx;
 
-    // 3. Left & Right Blind-Spot Turn Clearance Sensors
+      const verticalRel = Math.abs(fwdDot) < 10 ? '' : fwdDot > 0 ? 'AHEAD ' : 'BEHIND ';
+      const sideRel = Math.abs(rightDot) < 10 ? 'CENTER' : rightDot > 0 ? 'RIGHT' : 'LEFT';
+      document.getElementById('fp-enemy-bearing').textContent = `CPU: ${verticalRel}${sideRel} (${aiDist}m)`;
+    }
+
     const updateSideSensor = (sidePrefix, dist) => {
       const box = document.getElementById(`fp-${sidePrefix}-sensor`);
       const distEl = document.getElementById(`fp-${sidePrefix}-dist`);
@@ -585,12 +851,11 @@ class TronGame {
     updateSideSensor('left', leftDist);
     updateSideSensor('right', rightDist);
 
-    // 4. Forward Rangefinder & Turn Advisor when approaching a wall
     const fwdEl = document.getElementById('fp-fwd-range');
     const advisorEl = document.getElementById('fp-turn-advisor');
     const fRound = Math.round(fwdDist);
     fwdEl.textContent = `FWD RANGE: ${fRound}m`;
-    fwdEl.style.color = fwdDist < 28 ? '#ff2a55' : (fwdDist < 50 ? '#ffcc00' : '#00f3ff');
+    fwdEl.style.color = fwdDist < 28 ? '#ff2a55' : fwdDist < 50 ? '#ffcc00' : '#00f3ff';
 
     if (fwdDist < 42) {
       advisorEl.style.display = 'block';
@@ -605,8 +870,7 @@ class TronGame {
       advisorEl.style.display = 'none';
     }
 
-    // 5. Bottom Cockpit Dash Speed & Boost
-    document.getElementById('fp-dash-speed').textContent = `${kmh} KM/H${slipTag}`;
+    document.getElementById('fp-dash-speed').textContent = `${kmh} KM/H${statusTag}`;
     document.getElementById('fp-dash-boost').style.width = `${Math.round(this.player.boostEnergy)}%`;
   }
 
@@ -616,7 +880,6 @@ class TronGame {
     const h = this.radarCanvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    // Subtle radar grid
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.14)';
     ctx.lineWidth = 1;
     for (let i = 1; i < 4; i++) {
@@ -634,6 +897,22 @@ class TronGame {
       y: ((wz + this.arenaSize / 2) / this.arenaSize) * h
     });
 
+    // Draw Arena Obstacles on Radar
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.45)';
+    this.arena.obstacles.forEach((obs) => {
+      const op = toRadar(obs.x, obs.z);
+      ctx.fillRect(op.x - 2, op.y - 2, 4, 4);
+    });
+
+    // Draw Power-Ups on Radar
+    this.arena.powerUps.forEach((pu) => {
+      const pp = toRadar(pu.x, pu.z);
+      ctx.fillStyle = '#00ff88';
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
     // Draw Player Trails
     ctx.strokeStyle = '#00f3ff';
     ctx.lineWidth = 2;
@@ -646,31 +925,34 @@ class TronGame {
     });
     ctx.stroke();
 
-    // Draw AI Trails
-    ctx.strokeStyle = '#ff6600';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    this.ai.getAllCollisionSegments(true).forEach((s) => {
-      const p1 = toRadar(s.x1, s.z1);
-      const p2 = toRadar(s.x2, s.z2);
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-    });
-    ctx.stroke();
+    // Draw All Active AI Trails
+    const aiHexColors = ['#ff6600', '#ffe600', '#ff1a66'];
+    this.activeAICycles.forEach((ai, idx) => {
+      ctx.strokeStyle = aiHexColors[idx % aiHexColors.length];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ai.getAllCollisionSegments(true).forEach((s) => {
+        const p1 = toRadar(s.x1, s.z1);
+        const p2 = toRadar(s.x2, s.z2);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+      });
+      ctx.stroke();
 
-    // Draw Cycle Dots
+      if (ai.alive) {
+        const ap = toRadar(ai.pos.x, ai.pos.y);
+        ctx.fillStyle = aiHexColors[idx % aiHexColors.length];
+        ctx.beginPath();
+        ctx.arc(ap.x, ap.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
     if (this.player.alive) {
       const pp = toRadar(this.player.pos.x, this.player.pos.y);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(pp.x, pp.y, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (this.ai.alive) {
-      const ap = toRadar(this.ai.pos.x, this.ai.pos.y);
-      ctx.fillStyle = '#ff9900';
-      ctx.beginPath();
-      ctx.arc(ap.x, ap.y, 3.2, 0, Math.PI * 2);
+      ctx.arc(pp.x, pp.y, 3.4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -687,80 +969,152 @@ class TronGame {
     const dt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
+    this.arena.update(dt);
+
     if (this.state === 'MENU') {
-      // Gentle showcase orbit while on menu
       this.cameraRig.updateDerezzOrbitCamera(new THREE.Vector3(0, 0, 0), dt * 0.45);
     } else if (this.state === 'INTRO') {
       this.introSequence.update(dt);
+    } else if (this.state === 'PAUSED') {
+      const focus = new THREE.Vector3(this.player.pos.x * 0.4, 0, this.player.pos.y * 0.4);
+      this.cameraRig.updatePauseCamera(focus, dt, this.pauseOrbitDir);
     } else if (this.state === 'PLAYING') {
-      const prevPlayerPos = this.player.pos.clone();
-      const prevAiPos = this.ai.pos.clone();
+      // Periodically spawn Power-Up Octahedrons
+      this.powerUpSpawnTimer -= dt;
+      if (this.powerUpSpawnTimer <= 0 && this.arena.powerUps.length < 4) {
+        const types = ['OVERCHARGE', 'PHASE_SHIFT', 'TRAIL_ERASER'];
+        const randType = types[Math.floor(Math.random() * types.length)];
+        const rx = (Math.random() - 0.5) * 130;
+        const rz = (Math.random() - 0.5) * 130;
+        this.arena.spawnPowerUp(randType, rx, rz);
+        this.powerUpSpawnTimer = 8.5;
+      }
 
-      // Gather segments before step for AI & slipstream
-      const preSegments = [
-        ...this.player.getAllCollisionSegments(true),
-        ...this.ai.getAllCollisionSegments(true)
-      ];
+      const allCycles = [this.player, ...this.activeAICycles];
+      const prevPositions = new Map();
+      allCycles.forEach((c) => {
+        if (c.alive) prevPositions.set(c, c.pos.clone());
+      });
 
-      // AI Decision Step
-      this.aiController.update(dt, this.ai, this.player, preSegments);
+      const allActiveSegments = [];
+      allCycles.forEach((c) => {
+        allActiveSegments.push(...c.getAllCollisionSegments(true));
+      });
+
+      // AI Decision Step for all living CPU cycles
+      this.activeAICycles.forEach((ai) => {
+        if (!ai.alive) return;
+        const opponents = allCycles.filter((c) => c !== ai && c.alive);
+        this.aiController.update(
+          dt,
+          ai,
+          opponents,
+          allActiveSegments,
+          this.arena.obstacles,
+          this.arena.powerUps
+        );
+      });
 
       // Slipstream check
-      this.player.inSlipstream = this.collision.checkSlipstream(this.player, preSegments);
-
-      // Advance both cycles
-      this.player.update(dt, this.audio);
-      this.ai.update(dt, this.audio);
-
-      // Spawn boost or slipstream sparks
-      if (this.player.isBoosting || this.player.inSlipstream) {
-        this.particles.spawnBoostSpark(
-          this.player.pos.x,
-          this.player.pos.y,
-          this.player.dir.x,
-          this.player.dir.y,
-          0x00f3ff
-        );
-      }
-      if (this.ai.isBoosting) {
-        this.particles.spawnBoostSpark(
-          this.ai.pos.x,
-          this.ai.pos.y,
-          this.ai.dir.x,
-          this.ai.dir.y,
-          0xff6600
-        );
-      }
-
-      // Check collisions against all walls & trails
-      const playerCollisionSegments = [
-        ...this.player.getAllCollisionSegments(false),
-        ...this.ai.getAllCollisionSegments(true)
-      ];
-      const aiCollisionSegments = [
-        ...this.player.getAllCollisionSegments(true),
-        ...this.ai.getAllCollisionSegments(false)
-      ];
-
-      let playerHit = this.collision.checkCycleCollision(
-        prevPlayerPos,
-        this.player.pos,
-        playerCollisionSegments
-      );
-      let aiHit = this.collision.checkCycleCollision(
-        prevAiPos,
-        this.ai.pos,
-        aiCollisionSegments
+      this.player.inSlipstream = this.collision.checkSlipstream(
+        this.player,
+        allActiveSegments,
+        this.arena.obstacles
       );
 
-      // Head-on cycle-to-cycle collision
-      if (this.player.pos.distanceTo(this.ai.pos) < 1.35) {
+      // Advance all living cycles
+      allCycles.forEach((c) => {
+        if (!c.alive) return;
+        c.update(dt, this.audio);
+        if (c.isBoosting || c.inSlipstream) {
+          this.particles.spawnBoostSpark(c.pos.x, c.pos.y, c.dir.x, c.dir.y, c.color);
+        }
+      });
+
+      // Check Power-Up Pickups
+      this.checkPowerUpPickups(allCycles);
+
+      // Check Collisions for Player & AI Cycles
+      let playerHit = false;
+      let playerBreachedWall = false;
+
+      // 1. Player Collision Check
+      const playerBoundary = this.collision.checkBoundaryHit(this.player.pos);
+      if (playerBoundary) {
+        // 1982 "Off the Grid" Escape Breach if player hits outer perimeter wall while Boosting at high speed!
+        if (this.player.isBoosting && this.player.currentSpeed > 55) {
+          playerBreachedWall = true;
+          this.arena.createWallBreach(this.player.pos.x, this.player.pos.y);
+          this.particles.spawnWallBreachExplosion(this.player.pos.x, this.player.pos.y);
+        } else {
+          playerHit = true;
+        }
+      } else if (this.collision.checkObstacleCollision(this.player.pos, this.arena.obstacles)) {
         playerHit = true;
-        aiHit = true;
+      } else if (this.player.phaseShiftTimer <= 0) {
+        const segsAgainstPlayer = [
+          ...this.player.getAllCollisionSegments(false),
+          ...this.activeAICycles.flatMap((ai) => ai.getAllCollisionSegments(true))
+        ];
+        playerHit = this.collision.checkCycleCollision(
+          prevPositions.get(this.player),
+          this.player.pos,
+          segsAgainstPlayer
+        );
       }
 
-      if (playerHit || aiHit) {
-        this.triggerDerezz(playerHit, aiHit);
+      // 2. AI Cycles Collision Check
+      this.activeAICycles.forEach((ai) => {
+        if (!ai.alive) return;
+        const prevAi = prevPositions.get(ai);
+        let aiHit =
+          this.collision.checkBoundaryHit(ai.pos) ||
+          this.collision.checkObstacleCollision(ai.pos, this.arena.obstacles);
+
+        if (!aiHit && ai.phaseShiftTimer <= 0) {
+          const segsAgainstAi = [
+            ...this.player.getAllCollisionSegments(true),
+            ...ai.getAllCollisionSegments(false),
+            ...this.activeAICycles
+              .filter((other) => other !== ai)
+              .flatMap((other) => other.getAllCollisionSegments(true))
+          ];
+          aiHit = this.collision.checkCycleCollision(prevAi, ai.pos, segsAgainstAi);
+        }
+
+        // Head-on with player
+        if (this.player.pos.distanceTo(ai.pos) < 1.35) {
+          if (this.player.phaseShiftTimer <= 0) playerHit = true;
+          aiHit = true;
+        }
+
+        if (aiHit) {
+          ai.alive = false;
+          ai.root.visible = false;
+          this.audio.playDerezz();
+          this.particles.spawnDerezzExplosion(ai.pos.x, ai.pos.y, ai.color);
+          this.crashPoint.set(ai.pos.x, 0, ai.pos.y);
+        }
+      });
+
+      const anyAiAlive = this.activeAICycles.some((ai) => ai.alive);
+
+      if (playerBreachedWall) {
+        this.triggerMatchEnd('BREACH', this.player);
+      } else if (playerHit) {
+        this.player.alive = false;
+        this.player.root.visible = false;
+        this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
+        this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
+        this.triggerMatchEnd(anyAiAlive ? 'CPU_WIN' : 'DRAW');
+      } else if (!anyAiAlive) {
+        if (this.gameMode === 'GAUNTLET') {
+          this.playerScore++;
+          document.getElementById('score-player').textContent = `P1: ${this.playerScore}`;
+          this.spawnGauntletWave();
+        } else {
+          this.triggerMatchEnd('PLAYER_WIN');
+        }
       } else {
         this.cameraRig.updateGameplayCamera(this.player, dt);
         this.audio.updateEngine(
@@ -770,7 +1124,12 @@ class TronGame {
         );
       }
 
-      this.updateHUD(preSegments);
+      this.updateHUD(allActiveSegments);
+    } else if (this.state === 'VICTORY') {
+      if (this.winnerCycle) {
+        this.winnerCycle.setVictoryPose(now * 0.001);
+        this.cameraRig.updateVictoryCamera(this.winnerCycle, dt);
+      }
     } else if (this.state === 'DEREZZ') {
       this.cameraRig.updateDerezzOrbitCamera(this.crashPoint, dt);
     }

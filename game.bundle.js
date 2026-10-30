@@ -1,5 +1,5 @@
-// Auto-bundled from src/ for zero-CORS file:// execution
 (function() {
+"use strict";
 
 // --- src/audio/SynthAudio.js ---
 class SynthAudio {
@@ -9,6 +9,14 @@ class SynthAudio {
     this.engineOsc2 = null;
     this.engineGain = null;
     this.muted = false;
+
+    // 1982 Wendy Carlos / Synthwave arpeggiator state
+    this.musicTimer = null;
+    this.musicStep = 0;
+    this.musicIntensity = 1.0;
+    this.musicPlaying = false;
+    this.arpNotes = [146.83, 174.61, 220.0, 293.66, 261.63, 220.0, 174.61, 164.81];
+    this.leadNotes = [587.33, 698.46, 880.0, 783.99, 698.46, 659.25, 587.33, 523.25];
   }
 
   init() {
@@ -27,12 +35,96 @@ class SynthAudio {
     this.muted = !!muted;
     if (this.muted) {
       this.stopEngine();
+      this.stopMusic();
     }
   }
 
   toggleMute() {
     this.setMuted(!this.muted);
     return this.muted;
+  }
+
+  startMusic() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    this.stopMusic();
+    this.musicPlaying = true;
+    this.musicStep = 0;
+
+    const scheduleStep = () => {
+      if (!this.musicPlaying || this.muted || !this.ctx) return;
+
+      const now = this.ctx.currentTime;
+      const step = this.musicStep;
+      const noteFreq = this.arpNotes[step % this.arpNotes.length];
+      const bar = Math.floor(step / 16) % 4;
+      const transpose = bar === 2 ? 1.1892 : bar === 3 ? 0.8909 : 1.0; // F -> Bb -> C -> D minor feel
+      const freq = noteFreq * transpose;
+
+      // Bass arpeggio voice (sawtooth + lowpass filter)
+      const bassOsc = this.ctx.createOscillator();
+      const bassFilter = this.ctx.createBiquadFilter();
+      const bassGain = this.ctx.createGain();
+
+      bassOsc.type = 'sawtooth';
+      bassOsc.frequency.setValueAtTime(freq * 0.5, now);
+
+      bassFilter.type = 'lowpass';
+      const cutoff = 520 * this.musicIntensity + (step % 4 === 0 ? 320 : 0);
+      bassFilter.frequency.setValueAtTime(cutoff, now);
+      bassFilter.frequency.exponentialRampToValueAtTime(160, now + 0.12);
+      bassFilter.Q.setValueAtTime(4.5, now);
+
+      const bassVol = step % 4 === 0 ? 0.048 : 0.032;
+      bassGain.gain.setValueAtTime(bassVol, now);
+      bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+      bassOsc.connect(bassFilter);
+      bassFilter.connect(bassGain);
+      bassGain.connect(this.ctx.destination);
+
+      bassOsc.start(now);
+      bassOsc.stop(now + 0.135);
+
+      // Wendy Carlos style shimmering upper harmonic pulse on even steps or higher intensity
+      if (step % 2 === 0 || this.musicIntensity > 1.25) {
+        const leadOsc = this.ctx.createOscillator();
+        const leadGain = this.ctx.createGain();
+        const leadFreq = this.leadNotes[(step >> 1) % this.leadNotes.length] * transpose;
+
+        leadOsc.type = step % 4 === 0 ? 'triangle' : 'sine';
+        leadOsc.frequency.setValueAtTime(leadFreq, now);
+
+        leadGain.gain.setValueAtTime(0.018 * Math.min(1.4, this.musicIntensity), now);
+        leadGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+        leadOsc.connect(leadGain);
+        leadGain.connect(this.ctx.destination);
+
+        leadOsc.start(now);
+        leadOsc.stop(now + 0.17);
+      }
+
+      this.musicStep++;
+      const stepMs = Math.max(75, Math.round(140 / this.musicIntensity));
+      this.musicTimer = setTimeout(scheduleStep, stepMs);
+    };
+
+    scheduleStep();
+  }
+
+  setMusicIntensity(level = 1.0) {
+    this.musicIntensity = Math.max(1.0, Math.min(1.8, Number(level) || 1.0));
+  }
+
+  stopMusic() {
+    this.musicPlaying = false;
+    if (this.musicTimer) {
+      clearTimeout(this.musicTimer);
+      this.musicTimer = null;
+    }
   }
 
   playRodIgnite() {
@@ -185,6 +277,167 @@ class SynthAudio {
     osc.stop(now + 0.08);
   }
 
+  playPowerUp(type = 'OVERCHARGE') {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const chordMap = {
+      OVERCHARGE: [523.25, 659.25, 783.99, 1046.5],
+      PHASE_SHIFT: [440.0, 554.37, 659.25, 880.0, 1108.73],
+      TRAIL_ERASER: [392.0, 523.25, 659.25, 783.99, 1174.66]
+    };
+    const notes = chordMap[type] || chordMap.OVERCHARGE;
+    const waveType = type === 'PHASE_SHIFT' ? 'sine' : type === 'TRAIL_ERASER' ? 'sawtooth' : 'triangle';
+
+    notes.forEach((freq, idx) => {
+      const startTime = this.ctx.currentTime + idx * 0.055;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = waveType;
+      osc.frequency.setValueAtTime(freq, startTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.03, startTime + 0.16);
+
+      gain.gain.setValueAtTime(0.11, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.19);
+    });
+  }
+
+  playBrake() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(260, now);
+    osc.frequency.exponentialRampToValueAtTime(68, now + 0.24);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1100, now);
+    filter.frequency.exponentialRampToValueAtTime(180, now + 0.24);
+
+    gain.gain.setValueAtTime(0.095, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.26);
+  }
+
+  playWallBreach() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+
+    // Deep structural boom
+    const boomOsc = this.ctx.createOscillator();
+    const boomGain = this.ctx.createGain();
+    boomOsc.type = 'sine';
+    boomOsc.frequency.setValueAtTime(140, now);
+    boomOsc.frequency.exponentialRampToValueAtTime(28, now + 0.75);
+    boomGain.gain.setValueAtTime(0.36, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    boomOsc.connect(boomGain);
+    boomGain.connect(this.ctx.destination);
+    boomOsc.start(now);
+    boomOsc.stop(now + 0.82);
+
+    // High-frequency glass/grid shatter noise burst
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.55);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.16));
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const highpass = this.ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.setValueAtTime(1600, now);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.26, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.54);
+
+    noise.connect(highpass);
+    highpass.connect(noiseGain);
+    noiseGain.connect(this.ctx.destination);
+    noise.start(now);
+
+    // Crystalline grid shards
+    const shardFreqs = [1760, 2349.32, 1480, 2959.96, 1975.53];
+    shardFreqs.forEach((freq, idx) => {
+      const t = now + 0.03 + idx * 0.045;
+      const shardOsc = this.ctx.createOscillator();
+      const shardGain = this.ctx.createGain();
+      shardOsc.type = 'square';
+      shardOsc.frequency.setValueAtTime(freq, t);
+      shardOsc.frequency.exponentialRampToValueAtTime(freq * 0.72, t + 0.12);
+      shardGain.gain.setValueAtTime(0.06, t);
+      shardGain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      shardOsc.connect(shardGain);
+      shardGain.connect(this.ctx.destination);
+      shardOsc.start(t);
+      shardOsc.stop(t + 0.14);
+    });
+  }
+
+  playVictoryFanfare() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    // Triumphant 4-note 1982 arcade victory fanfare (D4 -> F4 -> A4 -> D5 sustained)
+    const fanfare = [
+      { freq: 293.66, delay: 0.0, dur: 0.14 },
+      { freq: 349.23, delay: 0.15, dur: 0.14 },
+      { freq: 440.0, delay: 0.30, dur: 0.14 },
+      { freq: 587.33, delay: 0.45, dur: 0.55 }
+    ];
+
+    fanfare.forEach(({ freq, delay, dur }) => {
+      const startTime = this.ctx.currentTime + delay;
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc1.type = 'sawtooth';
+      osc2.type = 'triangle';
+      osc1.frequency.setValueAtTime(freq, startTime);
+      osc2.frequency.setValueAtTime(freq * 2, startTime);
+
+      gain.gain.setValueAtTime(0.11, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc1.start(startTime);
+      osc2.start(startTime);
+      osc1.stop(startTime + dur + 0.02);
+      osc2.stop(startTime + dur + 0.02);
+    });
+  }
+
   playDerezz() {
     if (this.muted) return;
     this.init();
@@ -233,33 +486,102 @@ class SynthAudio {
   }
 }
 
+
 // --- src/scene/GridArena.js ---
+
+const POWERUP_TYPES = {
+  OVERCHARGE: {
+    type: 'OVERCHARGE',
+    name: 'OVERCHARGE',
+    color: 0x00ff88,
+    description: 'Refills 100% Boost & increases wall height/glow'
+  },
+  PHASE_SHIFT: {
+    type: 'PHASE_SHIFT',
+    name: 'PHASE SHIFT',
+    color: 0xff00ff,
+    description: 'Grants 3.0s of Phase-Shift invulnerability to pass through trails!'
+  },
+  TRAIL_ERASER: {
+    type: 'TRAIL_ERASER',
+    name: 'TRAIL ERASER',
+    color: 0xffee00,
+    description: 'Dissolves enemy trails on the Grid!'
+  }
+};
 
 class GridArena {
   constructor(scene, size = 200) {
     this.scene = scene;
     this.size = size;
     this.halfSize = size / 2;
+    this.time = 0;
+
     this.group = new THREE.Group();
     this.scene.add(this.group);
+
+    this.obstacles = [];
+    this.powerUps = [];
+    this.wallBreaches = [];
+
+    this.obstaclesGroup = new THREE.Group();
+    this.powerUpsGroup = new THREE.Group();
+    this.breachesGroup = new THREE.Group();
+
+    this.group.add(this.obstaclesGroup);
+    this.group.add(this.powerUpsGroup);
+    this.group.add(this.breachesGroup);
 
     this.buildFloor();
     this.buildPerimeterWalls();
     this.buildHorizonSkyline();
+    this.spawnArenaObstacles(4);
   }
 
   buildFloor() {
-    // Glossy dark floor plane
+    // Deep abyssal sub-floor base to anchor the under-grid depth
+    const subBaseGeo = new THREE.PlaneGeometry(this.size * 1.4, this.size * 1.4);
+    const subBaseMat = new THREE.MeshBasicMaterial({
+      color: 0x010308
+    });
+    const subBase = new THREE.Mesh(subBaseGeo, subBaseMat);
+    subBase.rotation.x = -Math.PI / 2;
+    subBase.position.y = -0.42;
+    this.group.add(subBase);
+
+    // Under-grid glowing lattice plane at y = -0.35 so light & reflections feel deep and 3D
+    const latticeGeo = new THREE.PlaneGeometry(this.size, this.size, 40, 40);
+    const latticeMat = new THREE.MeshBasicMaterial({
+      color: 0x00d8ff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.34
+    });
+    this.underGridLattice = new THREE.Mesh(latticeGeo, latticeMat);
+    this.underGridLattice.rotation.x = -Math.PI / 2;
+    this.underGridLattice.position.y = -0.35;
+    this.group.add(this.underGridLattice);
+
+    // Secondary glowing circuit helper at y = -0.35 for crisp 1982 parallax grid glow
+    const deepGrid = new THREE.GridHelper(this.size, 25, 0x00f3ff, 0x0a3566);
+    deepGrid.position.y = -0.35;
+    deepGrid.material.transparent = true;
+    deepGrid.material.opacity = 0.48;
+    this.group.add(deepGrid);
+
+    // Mirror-Reflective Grid Floor plane with rich glossy dark reflective sheen
     const floorGeo = new THREE.PlaneGeometry(this.size, this.size);
     const floorMat = new THREE.MeshStandardMaterial({
       color: 0x02060f,
-      roughness: 0.25,
-      metalness: 0.8
+      metalness: 0.92,
+      roughness: 0.12,
+      transparent: true,
+      opacity: 0.88
     });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.02;
-    this.group.add(floor);
+    this.floorMesh = new THREE.Mesh(floorGeo, floorMat);
+    this.floorMesh.rotation.x = -Math.PI / 2;
+    this.floorMesh.position.y = -0.02;
+    this.group.add(this.floorMesh);
 
     // Fine Grid Lines (every 4 units)
     const fineGrid = new THREE.GridHelper(this.size, 50, 0x00a8cc, 0x092442);
@@ -337,7 +659,406 @@ class GridArena {
       this.group.add(mesh);
     }
   }
+
+  clearArenaObstacles() {
+    while (this.obstaclesGroup.children.length > 0) {
+      const child = this.obstaclesGroup.children.pop();
+      child.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+    }
+    this.obstacles = [];
+  }
+
+  spawnArenaObstacles(count = 4) {
+    this.clearArenaObstacles();
+
+    const presetCoords = [
+      [-45, -45],
+      [45, -45],
+      [-45, 45],
+      [45, 45],
+      [-62, 0],
+      [62, 0],
+      [0, -62],
+      [0, 62]
+    ];
+
+    const num = Math.min(count, presetCoords.length);
+    for (let i = 0; i < num; i++) {
+      const [x, z] = presetCoords[i];
+      const radius = 3.2;
+      const obstacleMesh = new THREE.Group();
+      obstacleMesh.position.set(x, 0, z);
+
+      // 1982 Cyan/Indigo Octagonal Data Obelisk / Pyramid
+      const obeliskHeight = 10.5;
+      const obeliskGeo = new THREE.CylinderGeometry(0.55, 2.75, obeliskHeight, 8, 1);
+      const obeliskMat = new THREE.MeshStandardMaterial({
+        color: 0x0c1638,
+        emissive: 0x1e2a78,
+        emissiveIntensity: 0.75,
+        metalness: 0.85,
+        roughness: 0.18,
+        transparent: true,
+        opacity: 0.92
+      });
+      const obelisk = new THREE.Mesh(obeliskGeo, obeliskMat);
+      obelisk.position.y = obeliskHeight / 2;
+      obstacleMesh.add(obelisk);
+
+      // Glowing 1982 vector wireframe cage around the obelisk
+      const edgesGeo = new THREE.EdgesGeometry(obeliskGeo);
+      const edgesMat = new THREE.LineBasicMaterial({
+        color: 0x00f3ff,
+        transparent: true,
+        opacity: 0.95
+      });
+      const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+      wireframe.position.y = obeliskHeight / 2;
+      obstacleMesh.add(wireframe);
+
+      // Glowing pyramid cap on top of the obelisk
+      const capGeo = new THREE.ConeGeometry(1.15, 2.4, 8);
+      const capMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        wireframe: true
+      });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.position.y = obeliskHeight + 1.4;
+      obstacleMesh.add(cap);
+
+      // Base octagonal energy plinth & perimeter warning ring at radius 3.2
+      const baseRingGeo = new THREE.RingGeometry(radius - 0.35, radius + 0.1, 8);
+      const baseRingMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85
+      });
+      const baseRing = new THREE.Mesh(baseRingGeo, baseRingMat);
+      baseRing.rotation.x = -Math.PI / 2;
+      baseRing.position.y = 0.05;
+      obstacleMesh.add(baseRing);
+
+      // Inner indigo data pulse ring
+      const innerHaloGeo = new THREE.RingGeometry(1.6, 2.7, 8);
+      const innerHaloMat = new THREE.MeshBasicMaterial({
+        color: 0x4f46e5,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.45
+      });
+      const innerHalo = new THREE.Mesh(innerHaloGeo, innerHaloMat);
+      innerHalo.rotation.x = -Math.PI / 2;
+      innerHalo.position.y = 0.04;
+      obstacleMesh.add(innerHalo);
+
+      this.obstaclesGroup.add(obstacleMesh);
+      this.obstacles.push({
+        x,
+        z,
+        radius,
+        mesh: obstacleMesh,
+        obeliskMat,
+        cap,
+        baseRingMat,
+        phase: i * (Math.PI / 2)
+      });
+    }
+
+    return this.obstacles;
+  }
+
+  clearPowerUps() {
+    while (this.powerUpsGroup.children.length > 0) {
+      const child = this.powerUpsGroup.children.pop();
+      child.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+    }
+    this.powerUps = [];
+  }
+
+  spawnPowerUp(type = 'OVERCHARGE', x = 0, z = 0) {
+    const typeKeys = Object.keys(POWERUP_TYPES);
+    const resolvedType = POWERUP_TYPES[type]
+      ? type
+      : typeKeys[Math.floor(Math.random() * typeKeys.length)];
+    const config = POWERUP_TYPES[resolvedType];
+    const color = config.color;
+
+    const holder = new THREE.Group();
+    holder.position.set(x, 1.3, z);
+
+    // Core spinning 3D glowing OctahedronGeometry(1.1, 0)
+    const coreGeo = new THREE.OctahedronGeometry(1.1, 0);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.85,
+      metalness: 0.4,
+      roughness: 0.15,
+      transparent: true,
+      opacity: 0.92
+    });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    holder.add(core);
+
+    // Crisp bright wireframe overlay on the octahedron
+    const coreWireGeo = new THREE.OctahedronGeometry(1.16, 0);
+    const coreWireMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.75
+    });
+    const coreWire = new THREE.Mesh(coreWireGeo, coreWireMat);
+    core.add(coreWire);
+
+    // Outer wireframe ring orbiting the octahedron
+    const outerRingGeo = new THREE.OctahedronGeometry(1.55, 1);
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.55
+    });
+    const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
+    holder.add(outerRing);
+
+    // Floor halo directly beneath the power-up (relative to holder at y = 1.3 -> y = -1.25)
+    const haloGeo = new THREE.RingGeometry(1.15, 1.75, 24);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75
+    });
+    const halo = new THREE.Mesh(haloGeo, haloMat);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = -1.25;
+    holder.add(halo);
+
+    this.powerUpsGroup.add(holder);
+
+    const powerUp = {
+      type: resolvedType,
+      name: config.name,
+      description: config.description,
+      color,
+      x,
+      z,
+      radius: 2.2,
+      active: true,
+      mesh: holder,
+      core,
+      outerRing,
+      halo,
+      haloMat,
+      baseY: 1.3,
+      phase: Math.random() * Math.PI * 2
+    };
+
+    this.powerUps.push(powerUp);
+    return powerUp;
+  }
+
+  removePowerUp(powerUp) {
+    const idx = this.powerUps.indexOf(powerUp);
+    if (idx !== -1) {
+      this.powerUps.splice(idx, 1);
+    }
+    if (powerUp && powerUp.mesh) {
+      this.powerUpsGroup.remove(powerUp.mesh);
+      powerUp.mesh.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+    }
+  }
+
+  clearWallBreaches() {
+    while (this.breachesGroup.children.length > 0) {
+      const child = this.breachesGroup.children.pop();
+      child.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+    }
+    this.wallBreaches = [];
+  }
+
+  createWallBreach(x, z) {
+    const h = this.halfSize;
+    const isEastWest = Math.abs(x) >= Math.abs(z);
+    const wallX = isEastWest ? Math.sign(x || 1) * h : THREE.MathUtils.clamp(x, -h + 8, h - 8);
+    const wallZ = isEastWest ? THREE.MathUtils.clamp(z, -h + 8, h - 8) : Math.sign(z || 1) * h;
+    const rotY = isEastWest ? Math.PI / 2 : 0;
+    const outwardSign = isEastWest ? Math.sign(wallX || 1) : Math.sign(wallZ || 1);
+
+    const breachGroup = new THREE.Group();
+    breachGroup.position.set(wallX, 0, wallZ);
+    breachGroup.rotation.y = rotY;
+
+    const breachWidth = 11.0;
+    const breachHeight = 4.6;
+
+    // Shattered dark energy gap portal plane on the perimeter wall
+    const gapGeo = new THREE.PlaneGeometry(breachWidth, breachHeight);
+    const gapMat = new THREE.MeshBasicMaterial({
+      color: 0x01040a,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.94
+    });
+    const gapMesh = new THREE.Mesh(gapGeo, gapMat);
+    gapMesh.position.y = breachHeight / 2;
+    breachGroup.add(gapMesh);
+
+    // Glowing cyan/white breach portal energy field
+    const fieldGeo = new THREE.RingGeometry(2.2, 5.2, 6);
+    const fieldMat = new THREE.MeshBasicMaterial({
+      color: 0x00f3ff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.72
+    });
+    const fieldMesh = new THREE.Mesh(fieldGeo, fieldMat);
+    fieldMesh.position.set(0, breachHeight / 2, 0.08);
+    breachGroup.add(fieldMesh);
+
+    // Jagged glowing structural frame pillars & shards around the breach
+    const shardMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff
+    });
+    const cyanShardMat = new THREE.MeshBasicMaterial({
+      color: 0x00f3ff,
+      wireframe: true
+    });
+
+    for (let i = 0; i < 10; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const t = Math.floor(i / 2) / 4;
+      const sy = 0.5 + t * (breachHeight - 0.6);
+      const sx = side * (breachWidth * 0.46 + (Math.random() - 0.5) * 0.9);
+      const shardGeo = new THREE.ConeGeometry(0.45 + Math.random() * 0.35, 1.8 + Math.random() * 1.2, 4);
+      const shard = new THREE.Mesh(shardGeo, i % 3 === 0 ? shardMat : cyanShardMat);
+      shard.position.set(sx, sy, (Math.random() - 0.5) * 0.4);
+      shard.rotation.z = side * (0.4 + Math.random() * 0.7);
+      shard.rotation.x = (Math.random() - 0.5) * 0.5;
+      breachGroup.add(shard);
+    }
+
+    // Escape highway light runway extending outward "Off the Grid"
+    const runwayLength = 42;
+    const runwayGeo = new THREE.PlaneGeometry(breachWidth * 0.85, runwayLength, 4, 12);
+    const runwayMat = new THREE.MeshBasicMaterial({
+      color: 0x00f3ff,
+      wireframe: true,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.65
+    });
+    const runway = new THREE.Mesh(runwayGeo, runwayMat);
+    runway.rotation.x = -Math.PI / 2;
+    const outwardLocalZ = isEastWest ? outwardSign : outwardSign;
+    runway.position.set(0, 0.04, outwardLocalZ * (runwayLength / 2));
+    breachGroup.add(runway);
+
+    this.breachesGroup.add(breachGroup);
+
+    const breach = {
+      x: wallX,
+      z: wallZ,
+      radius: breachWidth * 0.5,
+      mesh: breachGroup,
+      fieldMesh,
+      fieldMat
+    };
+    this.wallBreaches.push(breach);
+    return breach;
+  }
+
+  update(dt) {
+    this.time += dt;
+
+    // Subtle under-grid lattice shimmer
+    if (this.underGridLattice && this.underGridLattice.material) {
+      this.underGridLattice.material.opacity = 0.28 + Math.sin(this.time * 2.2) * 0.08;
+    }
+
+    // Pulse 1982 Arena Obstacles
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const obs = this.obstacles[i];
+      const pulse = 0.5 + 0.5 * Math.sin(this.time * 3.2 + obs.phase);
+      if (obs.obeliskMat) {
+        obs.obeliskMat.emissiveIntensity = 0.55 + pulse * 0.55;
+      }
+      if (obs.cap) {
+        obs.cap.rotation.y += dt * 1.4;
+        obs.cap.position.y = 11.8 + Math.sin(this.time * 2.6 + obs.phase) * 0.3;
+      }
+      if (obs.baseRingMat) {
+        obs.baseRingMat.opacity = 0.6 + pulse * 0.35;
+      }
+    }
+
+    // Rotate and bob active Power-Up Data Octahedrons
+    for (let i = this.powerUps.length - 1; i >= 0; i--) {
+      const p = this.powerUps[i];
+      if (!p.active) {
+        this.removePowerUp(p);
+        continue;
+      }
+
+      const bob = Math.sin(this.time * 3.4 + p.phase) * 0.28;
+      p.mesh.position.y = p.baseY + bob;
+
+      if (p.core) {
+        p.core.rotation.y += dt * 2.4;
+        p.core.rotation.x += dt * 1.1;
+      }
+      if (p.outerRing) {
+        p.outerRing.rotation.y -= dt * 1.6;
+        p.outerRing.rotation.z += dt * 1.2;
+      }
+      if (p.halo) {
+        // Keep floor halo anchored right above the grid floor
+        p.halo.position.y = -(p.baseY + bob) + 0.05;
+        p.halo.rotation.z -= dt * 1.5;
+        const scale = 0.92 + 0.14 * Math.sin(this.time * 4.5 + p.phase);
+        p.halo.scale.set(scale, scale, 1);
+      }
+    }
+
+    // Pulse any active wall breaches
+    for (let i = 0; i < this.wallBreaches.length; i++) {
+      const b = this.wallBreaches[i];
+      if (b.fieldMesh) {
+        b.fieldMesh.rotation.z += dt * 1.8;
+      }
+      if (b.fieldMat) {
+        b.fieldMat.opacity = 0.5 + 0.35 * Math.sin(this.time * 6.0 + i);
+      }
+    }
+  }
 }
+
 
 // --- src/scene/LightCycle.js ---
 
@@ -346,15 +1067,19 @@ class LightCycle {
     this.scene = scene;
     this.name = config.name || 'PLAYER';
     this.color = config.color || 0x00f3ff;
-    this.secondaryColor = config.isPlayer ? 0x99ffff : 0xffcc66;
+    this.secondaryColor = config.secondaryColor || (config.isPlayer ? 0x99ffff : 0xffcc66);
     this.isPlayer = !!config.isPlayer;
 
-    this.startX = config.startX || -40;
-    this.startZ = config.startZ || 0;
+    this.startX = config.startX !== undefined ? config.startX : -40;
+    this.startZ = config.startZ !== undefined ? config.startZ : 0;
     this.startDir = config.startDir ? config.startDir.clone() : new THREE.Vector2(1, 0);
 
     this.baseSpeed = 42;
     this.boostSpeed = 68;
+    this.brakeSpeed = 24;
+    this.isBraking = false;
+    this.phaseShiftTimer = 0;
+    this.inVictory = false;
     this.wallHeight = 2.6;
 
     this.root = new THREE.Group();
@@ -440,8 +1165,6 @@ class LightCycle {
    * - Hinged LEGO arms with iconic yellow C-shaped claw hands that snap onto the Handheld Control Rod!
    */
   buildLegoMinifigRider() {
-    const hexColor = this.isPlayer ? '#00f3ff' : '#ff6600';
-
     // Glossy LEGO ABS Plastic materials
     const legoSuitMat = new THREE.MeshPhongMaterial({
       color: 0x162234,
@@ -858,6 +1581,11 @@ class LightCycle {
       opacity: 0.0
     });
 
+    // Dynamic PointLight on Every Cycle
+    this.cycleLight = new THREE.PointLight(this.color, 1.6, 26);
+    this.cycleLight.position.set(0, 1.6, 0);
+    this.root.add(this.cycleLight);
+
     // 1. MASSIVE 1982 ENCLOSED FRONT & REAR WHEELS
     this.frontWheelGroup = this.createClassic1982WheelAssembly(0.78, 0.56);
     this.frontWheelGroup.position.set(0, 0.78, 1.48);
@@ -961,6 +1689,47 @@ class LightCycle {
 
     this.bikeGroup.add(this.chassisGroup);
 
+    // 5. UNDER-GLOW MIRROR REFLECTION ON THE GLOSSY GRID FLOOR
+    this.floorReflectionGroup = new THREE.Group();
+    this.floorReflectionGroup.position.y = -0.55;
+    this.floorReflectionGroup.scale.y = -0.65;
+
+    this.reflectionMat = new THREE.MeshBasicMaterial({
+      color: this.color,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    });
+    this.reflectionSecondaryMat = new THREE.MeshBasicMaterial({
+      color: this.secondaryColor,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    });
+
+    const reflFrontShroud = new THREE.Mesh(frontShroudGeo, this.reflectionMat);
+    reflFrontShroud.position.set(0, 0.78, 1.48);
+    this.floorReflectionGroup.add(reflFrontShroud);
+
+    const reflRearShroud = new THREE.Mesh(rearShroudGeo, this.reflectionMat);
+    reflRearShroud.position.set(0, 0.84, -1.48);
+    this.floorReflectionGroup.add(reflRearShroud);
+
+    const reflDome = new THREE.Mesh(domeGeo, this.reflectionMat);
+    reflDome.position.set(0, 0.90, -0.05);
+    this.floorReflectionGroup.add(reflDome);
+
+    [-0.49, 0.49].forEach((xSide) => {
+      const reflStripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.08, 3.35),
+        this.reflectionSecondaryMat
+      );
+      reflStripe.position.set(xSide, 0.78, 0.05);
+      this.floorReflectionGroup.add(reflStripe);
+    });
+
+    this.bikeGroup.add(this.floorReflectionGroup);
+
     // Touchdown Shockwave Ring on the Floor
     const shockGeo = new THREE.RingGeometry(0.4, 0.75, 32);
     shockGeo.rotateX(-Math.PI / 2);
@@ -1013,28 +1782,46 @@ class LightCycle {
     return wheelGroup;
   }
 
+  clearTrails() {
+    while (this.trailGroup.children.length > 0) {
+      const child = this.trailGroup.children.pop();
+      if (child.geometry) child.geometry.dispose();
+      if (child.children) {
+        child.children.forEach((c) => {
+          if (c.geometry) c.geometry.dispose();
+          if (c.material) c.material.dispose();
+        });
+      }
+    }
+    this.segments = [];
+    if (this.pos) {
+      if (this.currentSegmentStart) {
+        this.currentSegmentStart.copy(this.pos);
+      } else {
+        this.currentSegmentStart = this.pos.clone();
+      }
+    }
+    this.activeWallMesh = this.createWallMesh();
+    this.activeWallMesh.visible = !this.inIntro;
+    this.trailGroup.add(this.activeWallMesh);
+  }
+
   reset() {
     this.pos = new THREE.Vector2(this.startX, this.startZ);
     this.dir = this.startDir.clone();
     this.turnQueue = [];
     this.alive = true;
     this.isBoosting = false;
+    this.isBraking = false;
+    this.phaseShiftTimer = 0;
+    this.inVictory = false;
     this.boostEnergy = 100;
     this.inSlipstream = false;
     this.leanAngle = 0;
     this.currentSpeed = this.baseSpeed;
 
-    while (this.trailGroup.children.length > 0) {
-      const child = this.trailGroup.children.pop();
-      if (child.geometry) child.geometry.dispose();
-    }
-
-    this.segments = [];
-    this.currentSegmentStart = this.pos.clone();
-    this.activeWallMesh = this.createWallMesh();
-    this.trailGroup.add(this.activeWallMesh);
-
     this.inIntro = true;
+    this.clearTrails();
     this.setIntroAnimationState(0);
     this.syncTransform();
     this.updateActiveWallMesh();
@@ -1049,6 +1836,7 @@ class LightCycle {
    */
   setIntroAnimationState(progress) {
     this.inIntro = true;
+    this.inVictory = false;
     this.root.visible = true;
     this.activeWallMesh.visible = false;
     this.riderGroup.visible = true;
@@ -1309,6 +2097,7 @@ class LightCycle {
 
   setCompletedIntroState() {
     this.inIntro = false;
+    this.inVictory = false;
     this.root.visible = true;
     this.bikeGroup.visible = true;
     this.frontWheelGroup.visible = true;
@@ -1339,6 +2128,50 @@ class LightCycle {
     if (this.activeWallMesh) {
       this.activeWallMesh.visible = true;
     }
+  }
+
+  /**
+   * LEGO Minifigure Victory Celebration Pose:
+   * Pops the canopy open, stands the LEGO Minifigure upright on the saddle,
+   * and pumps both LEGO C-grip arms & the glowing Control Rod up and down overhead in celebration!
+   */
+  setVictoryPose(time = 0) {
+    this.inVictory = true;
+    this.inIntro = false;
+    this.root.visible = true;
+    this.bikeGroup.visible = true;
+    this.riderGroup.visible = true;
+
+    this.canopyGroup.visible = true;
+    this.canopyGroup.position.y = 0.55;
+    this.canopyGroup.rotation.x = -0.45;
+
+    this.riderPoseGroup.position.set(0, 0.35, 0);
+    this.pelvisGroup.position.set(0, 0.62, 0);
+    this.riderTorso.rotation.x = 0;
+    this.leftLeg.hipJoint.rotation.x = 0;
+    this.rightLeg.hipJoint.rotation.x = 0;
+
+    const pump = Math.sin(time * 9.0);
+    const pump01 = (pump + 1) * 0.5;
+
+    this.helmetGroup.rotation.x = -0.15 - pump01 * 0.1;
+    this.helmetGroup.rotation.y = Math.sin(time * 3.5) * 0.22;
+
+    const armPitch = -2.65 - pump * 0.38;
+    this.leftArm.shoulderJoint.rotation.set(armPitch, 0.12, -0.15);
+    this.rightArm.shoulderJoint.rotation.set(armPitch, -0.12, 0.15);
+    this.leftArm.elbowJoint.rotation.set(-0.2, 0, 0);
+    this.rightArm.elbowJoint.rotation.set(-0.2, 0, 0);
+
+    this.leftBatonHalf.position.x = -0.16;
+    this.rightBatonHalf.position.x = 0.16;
+    this.batonPlasmaBridge.scale.x = 0.32;
+    this.batonGroup.position.set(0, 0.88 + pump * 0.15, 0.14);
+
+    this.batonHalo.material.opacity = 0.45 + pump01 * 0.45;
+    const haloScale = 1.2 + pump01 * 0.9;
+    this.batonHalo.scale.set(haloScale, haloScale, 1);
   }
 
   setFirstPersonVisibility(isFirstPerson) {
@@ -1423,10 +2256,26 @@ class LightCycle {
     if (this.isBoosting && this.boostEnergy > 0) {
       this.currentSpeed = this.boostSpeed;
       this.boostEnergy = Math.max(0, this.boostEnergy - dt * 36);
+    } else if (this.isBraking) {
+      this.currentSpeed = this.brakeSpeed;
+      const regenRate = this.inSlipstream ? 28 : 8;
+      this.boostEnergy = Math.min(100, this.boostEnergy + dt * regenRate);
     } else {
       this.currentSpeed = this.baseSpeed;
       const regenRate = this.inSlipstream ? 28 : 8;
       this.boostEnergy = Math.min(100, this.boostEnergy + dt * regenRate);
+    }
+
+    // Phase-Shift Invulnerability State
+    if (this.phaseShiftTimer > 0) {
+      this.phaseShiftTimer = Math.max(0, this.phaseShiftTimer - dt);
+      this.hullMat.opacity = 0.35 + 0.25 * Math.sin(performance.now() * 0.025);
+      this.wireframeShell.visible = true;
+      this.wireframeMat.opacity = 0.85;
+    } else if (!this.inIntro && !this.inVictory) {
+      this.hullMat.opacity = 1.0;
+      this.wireframeShell.visible = false;
+      this.wireframeMat.opacity = 0;
     }
 
     const step = this.currentSpeed * dt;
@@ -1533,92 +2382,6 @@ class LightCycle {
   }
 }
 
-// --- src/scene/IntroSequence.js ---
-class IntroSequence {
-  constructor(playerCycle, aiCycle, cameraRig, audio, uiCallbacks) {
-    this.player = playerCycle;
-    this.ai = aiCycle;
-    this.cameraRig = cameraRig;
-    this.audio = audio;
-    this.ui = uiCallbacks || {};
-
-    this.duration = 3.8; // 3.8s cinematic 4-phase choreography
-    this.elapsed = 0;
-    this.active = false;
-    this.stage = 0;
-  }
-
-  start() {
-    this.elapsed = 0;
-    this.active = true;
-    this.stage = 1;
-
-    this.player.setIntroAnimationState(0);
-    this.ai.setIntroAnimationState(0);
-
-    if (this.audio) {
-      this.audio.playRodIgnite();
-    }
-    if (this.ui.onStageChange) {
-      this.ui.onStageChange('STAGE 01 // PROGRAM RIDER IGNITES CONTROL ROD', 'READY');
-    }
-  }
-
-  skip() {
-    if (!this.active) return;
-    this.active = false;
-    this.player.setCompletedIntroState();
-    this.ai.setCompletedIntroState();
-    if (this.ui.onComplete) {
-      this.ui.onComplete();
-    }
-  }
-
-  update(dt) {
-    if (!this.active) return false;
-
-    this.elapsed += dt;
-    const progress = Math.min(1.0, this.elapsed / this.duration);
-
-    this.player.setIntroAnimationState(progress);
-    this.ai.setIntroAnimationState(progress);
-
-    // Stage transitions & sound effects
-    if (progress >= 0.25 && this.stage === 1) {
-      this.stage = 2;
-      if (this.ui.onStageChange) {
-        this.ui.onStageChange('STAGE 02 // RIDER LEAPS & LOCKS INTO RIDING POSITION', '3');
-      }
-    } else if (progress >= 0.55 && this.stage === 2) {
-      this.stage = 3;
-      if (this.audio) this.audio.playWireframeRez();
-      if (this.ui.onStageChange) {
-        this.ui.onStageChange('STAGE 03 // CYCLE MATERIALIZES AROUND RIDER', '2');
-      }
-    } else if (progress >= 0.86 && this.stage === 3) {
-      this.stage = 4;
-      if (this.audio) this.audio.playTouchdown();
-      if (this.ui.onStageChange) {
-        this.ui.onStageChange('STAGE 04 // GRID TOUCHDOWN — TURBINES ONLINE', '1');
-      }
-    }
-
-    // Update cinematic intro camera
-    this.cameraRig.updateIntroCamera(this.player, progress);
-
-    if (progress >= 1.0) {
-      this.active = false;
-      this.player.setCompletedIntroState();
-      this.ai.setCompletedIntroState();
-      if (this.ui.onComplete) {
-        this.ui.onComplete();
-      }
-      return false;
-    }
-
-    return true;
-  }
-}
 
 // --- src/scene/Particles.js ---
 
@@ -1635,6 +2398,11 @@ class ParticleSystem {
       new THREE.CylinderGeometry(0.18, 0.18, 0.16, 14) // Round LEGO 1x1 stud/plate
     ];
     this.studGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.06, 10);
+    this.shardGeos = [
+      new THREE.BoxGeometry(0.85, 0.18, 0.42), // Structural wall panel shard
+      new THREE.ConeGeometry(0.32, 0.95, 4), // Jagged crystal/energy wall shard
+      new THREE.OctahedronGeometry(0.26, 0) // Energy node fragment
+    ];
   }
 
   clear() {
@@ -1692,6 +2460,113 @@ class ParticleSystem {
     }
   }
 
+  spawnWallBreachExplosion(x, z) {
+    // Determine outward breach direction from arena center toward perimeter wall
+    const len = Math.hypot(x, z) || 1;
+    const outX = x / len;
+    const outZ = z / len;
+
+    for (let i = 0; i < 90; i++) {
+      const isWhite = i % 3 === 0;
+      const isElectricBlue = i % 5 === 0;
+      const pieceColor = isWhite ? 0xffffff : (isElectricBlue ? 0x38bdf8 : 0x00f3ff);
+
+      const mat = new THREE.MeshPhongMaterial({
+        color: pieceColor,
+        emissive: pieceColor,
+        emissiveIntensity: 0.75,
+        shininess: 100,
+        transparent: true,
+        opacity: 1.0
+      });
+
+      // Mix structural wall shards and LEGO bricks/studs
+      const useShard = i % 2 === 0;
+      const baseGeo = useShard
+        ? this.shardGeos[i % this.shardGeos.length]
+        : this.brickGeos[i % this.brickGeos.length];
+      const mesh = new THREE.Mesh(baseGeo, mat);
+
+      if (!useShard && i % 3 !== 2) {
+        const stud = new THREE.Mesh(this.studGeo, mat);
+        stud.position.y = 0.15;
+        mesh.add(stud);
+      }
+
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 3.5,
+        0.5 + Math.random() * 3.8,
+        z + (Math.random() - 0.5) * 3.5
+      );
+      const scale = 0.75 + Math.random() * 1.45;
+      mesh.scale.setScalar(scale);
+
+      const spreadAngle = (Math.random() - 0.5) * Math.PI * 0.85;
+      const baseAngle = Math.atan2(outZ, outX) + spreadAngle;
+      const speed = 14 + Math.random() * 34;
+      const vy = 4 + Math.random() * 20;
+
+      this.group.add(mesh);
+      this.particles.push({
+        mesh,
+        vx: Math.cos(baseAngle) * speed,
+        vy,
+        vz: Math.sin(baseAngle) * speed,
+        rx: (Math.random() - 0.5) * 16,
+        ry: (Math.random() - 0.5) * 16,
+        life: 2.0 + Math.random() * 1.0,
+        maxLife: 3.0
+      });
+    }
+  }
+
+  spawnPowerUpBurst(x, z, color = 0x00ff88) {
+    const count = 36;
+    for (let i = 0; i < count; i++) {
+      const isCoreWhite = i % 4 === 0;
+      const pieceColor = isCoreWhite ? 0xffffff : color;
+
+      const mat = new THREE.MeshBasicMaterial({
+        color: pieceColor,
+        transparent: true,
+        opacity: 1.0
+      });
+
+      const geo = i % 2 === 0 ? this.shardGeos[2] : this.brickGeos[2];
+      const mesh = new THREE.Mesh(geo, mat);
+
+      const t = i / count;
+      const spiralAngle = t * Math.PI * 6;
+      const radius = 0.5 + t * 1.8;
+
+      mesh.position.set(
+        x + Math.cos(spiralAngle) * radius,
+        0.5 + t * 2.2,
+        z + Math.sin(spiralAngle) * radius
+      );
+      mesh.scale.setScalar(0.65 + (1 - t) * 0.65);
+
+      const tangentX = -Math.sin(spiralAngle);
+      const tangentZ = Math.cos(spiralAngle);
+      const outSpeed = 4 + Math.random() * 7;
+      const swirlSpeed = 6 + Math.random() * 6;
+
+      this.group.add(mesh);
+      this.particles.push({
+        mesh,
+        vx: Math.cos(spiralAngle) * outSpeed + tangentX * swirlSpeed,
+        vy: 8 + Math.random() * 10,
+        vz: Math.sin(spiralAngle) * outSpeed + tangentZ * swirlSpeed,
+        rx: (Math.random() - 0.5) * 10,
+        ry: (Math.random() - 0.5) * 10,
+        gravity: 9,
+        bounce: false,
+        life: 0.75 + Math.random() * 0.45,
+        maxLife: 1.2
+      });
+    }
+  }
+
   spawnBoostSpark(x, z, dirX, dirZ, color) {
     const mat = new THREE.MeshBasicMaterial({
       color,
@@ -1729,12 +2604,13 @@ class ParticleSystem {
         continue;
       }
 
-      p.vy -= 28 * dt;
+      const gravity = p.gravity !== undefined ? p.gravity : 28;
+      p.vy -= gravity * dt;
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.y += p.vy * dt;
       p.mesh.position.z += p.vz * dt;
 
-      if (p.mesh.position.y < 0.16) {
+      if (p.bounce !== false && p.mesh.position.y < 0.16) {
         p.mesh.position.y = 0.16;
         p.vy *= -0.58;
         p.vx *= 0.82;
@@ -1747,6 +2623,7 @@ class ParticleSystem {
     }
   }
 }
+
 
 // --- src/camera/CameraRig.js ---
 
@@ -1765,6 +2642,8 @@ class CameraRig {
     this.currentPos = new THREE.Vector3(0, 50, 50);
     this.currentLookAt = new THREE.Vector3(0, 0, 0);
     this.orbitAngle = 0;
+    this.pauseOrbitAngle = 0;
+    this.victoryOrbitAngle = 0;
   }
 
   resize(aspect) {
@@ -1903,6 +2782,8 @@ class CameraRig {
     }
 
     this.camera.lookAt(target.lookAt);
+    this.currentPos.copy(this.camera.position);
+    this.currentLookAt.copy(target.lookAt);
     if (target.roll) {
       this.camera.rotation.z += target.roll * 0.35;
     }
@@ -1916,7 +2797,169 @@ class CameraRig {
     this.camera.position.lerp(new THREE.Vector3(camX, 11, camZ), 1 - Math.exp(-4 * dt));
     this.camera.lookAt(focusPoint.x, 1.2, focusPoint.z);
   }
+
+  /**
+   * Pause Free-Orbit / Inspection Camera:
+   * Smoothly orbits around the arena center or player cycle at an elevated vantage point (Y = 65)
+   * so the player can inspect the 3D neon trail labyrinth from any angle while paused.
+   */
+  updatePauseCamera(focusPoint, dt = 0.016, orbitInput = 0) {
+    if (focusPoint && typeof focusPoint.setFirstPersonVisibility === 'function') {
+      focusPoint.setFirstPersonVisibility(false);
+    }
+
+    const fx = focusPoint
+      ? (focusPoint.pos ? focusPoint.pos.x : (focusPoint.x || 0))
+      : 0;
+    const fz = focusPoint
+      ? (focusPoint.pos ? focusPoint.pos.y : (focusPoint.z !== undefined ? focusPoint.z : (focusPoint.y || 0)))
+      : 0;
+
+    this.pauseOrbitAngle += (orbitInput || 0.25) * dt;
+    const radius = 92;
+    const height = 65;
+
+    const camX = fx + Math.cos(this.pauseOrbitAngle) * radius;
+    const camZ = fz + Math.sin(this.pauseOrbitAngle) * radius;
+    const targetPos = new THREE.Vector3(camX, height, camZ);
+    const targetLookAt = new THREE.Vector3(fx, 1.5, fz);
+
+    const alpha = 1 - Math.exp(-4.5 * dt);
+    this.camera.position.lerp(targetPos, alpha);
+    this.currentLookAt.lerp(targetLookAt, alpha);
+    this.camera.lookAt(this.currentLookAt);
+  }
+
+  /**
+   * Victory Celebration Close-Up Camera:
+   * Orbits closely (radius = 6.5, height = 2.6) around the winning cycle so the player
+   * gets a close-up view of the LEGO Minifigure popping open the canopy and cheering
+   * with the glowing Control Rod overhead.
+   */
+  updateVictoryCamera(winnerCycle, dt = 0.016) {
+    if (!winnerCycle) return;
+
+    if (typeof winnerCycle.setFirstPersonVisibility === 'function') {
+      winnerCycle.setFirstPersonVisibility(false);
+    }
+
+    const wx = winnerCycle.pos ? winnerCycle.pos.x : (winnerCycle.x || 0);
+    const wz = winnerCycle.pos ? winnerCycle.pos.y : (winnerCycle.z !== undefined ? winnerCycle.z : (winnerCycle.y || 0));
+
+    this.victoryOrbitAngle += dt * 0.75;
+    const radius = 6.5;
+    const height = 2.6;
+
+    const camX = wx + Math.cos(this.victoryOrbitAngle) * radius;
+    const camZ = wz + Math.sin(this.victoryOrbitAngle) * radius;
+    const targetPos = new THREE.Vector3(camX, height, camZ);
+    const targetLookAt = new THREE.Vector3(wx, 1.45, wz);
+
+    const alpha = 1 - Math.exp(-5.5 * dt);
+    this.camera.position.lerp(targetPos, alpha);
+    this.currentLookAt.lerp(targetLookAt, alpha);
+    this.camera.lookAt(this.currentLookAt);
+  }
 }
+
+
+// --- src/scene/IntroSequence.js ---
+class IntroSequence {
+  constructor(playerCycle, aiCycles, cameraRig, audio, uiCallbacks) {
+    this.player = playerCycle;
+    this.aiCycles = Array.isArray(aiCycles) ? aiCycles : [aiCycles];
+    this.cameraRig = cameraRig;
+    this.audio = audio;
+    this.ui = uiCallbacks || {};
+
+    this.duration = 3.8;
+    this.elapsed = 0;
+    this.active = false;
+    this.stage = 0;
+  }
+
+  setAICycles(aiCycles) {
+    this.aiCycles = Array.isArray(aiCycles) ? aiCycles : [aiCycles];
+  }
+
+  start() {
+    this.elapsed = 0;
+    this.active = true;
+    this.stage = 1;
+
+    this.player.setIntroAnimationState(0);
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setIntroAnimationState(0);
+    });
+
+    if (this.audio) {
+      this.audio.playRodIgnite();
+    }
+    if (this.ui.onStageChange) {
+      this.ui.onStageChange('STAGE 01 // PROGRAM RIDER IGNITES CONTROL ROD', 'READY');
+    }
+  }
+
+  skip() {
+    if (!this.active) return;
+    this.active = false;
+    this.player.setCompletedIntroState();
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setCompletedIntroState();
+    });
+    if (this.ui.onComplete) {
+      this.ui.onComplete();
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return false;
+
+    this.elapsed += dt;
+    const progress = Math.min(1.0, this.elapsed / this.duration);
+
+    this.player.setIntroAnimationState(progress);
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setIntroAnimationState(progress);
+    });
+
+    if (progress >= 0.25 && this.stage === 1) {
+      this.stage = 2;
+      if (this.ui.onStageChange) {
+        this.ui.onStageChange('STAGE 02 // RIDER LEAPS & LOCKS INTO RIDING POSITION', '3');
+      }
+    } else if (progress >= 0.55 && this.stage === 2) {
+      this.stage = 3;
+      if (this.audio) this.audio.playWireframeRez();
+      if (this.ui.onStageChange) {
+        this.ui.onStageChange('STAGE 03 // CYCLE MATERIALIZES AROUND RIDER', '2');
+      }
+    } else if (progress >= 0.86 && this.stage === 3) {
+      this.stage = 4;
+      if (this.audio) this.audio.playTouchdown();
+      if (this.ui.onStageChange) {
+        this.ui.onStageChange('STAGE 04 // GRID TOUCHDOWN — TURBINES ONLINE', '1');
+      }
+    }
+
+    this.cameraRig.updateIntroCamera(this.player, progress);
+
+    if (progress >= 1.0) {
+      this.active = false;
+      this.player.setCompletedIntroState();
+      this.aiCycles.forEach((ai) => {
+        if (ai.alive) ai.setCompletedIntroState();
+      });
+      if (this.ui.onComplete) {
+        this.ui.onComplete();
+      }
+      return false;
+    }
+
+    return true;
+  }
+}
+
 
 // --- src/logic/Collision.js ---
 class CollisionSystem {
@@ -1925,22 +2968,70 @@ class CollisionSystem {
   }
 
   /**
-   * Checks if moving from prevPos to currPos collides with arena bounds or any trail segment
+   * Checks if currPos hits the outer arena perimeter boundary wall.
+   * Used by main.js to distinguish outer wall hits (for the 1982 "Off the Grid" wall breach)
+   * from light trail or obstacle collisions.
    */
-  checkCycleCollision(prevPos, currPos, allSegments) {
+  checkBoundaryHit(currPos) {
     const margin = 0.7;
-    if (
+    const cz = currPos.y !== undefined ? currPos.y : currPos.z;
+    return (
       currPos.x <= -this.halfSize + margin ||
       currPos.x >= this.halfSize - margin ||
-      currPos.y <= -this.halfSize + margin ||
-      currPos.y >= this.halfSize - margin
-    ) {
+      cz <= -this.halfSize + margin ||
+      cz >= this.halfSize - margin
+    );
+  }
+
+  /**
+   * Checks if currPos is within obs.radius of any arena obstacle in obstacles.
+   */
+  checkObstacleCollision(currPos, obstacles = []) {
+    if (!obstacles || obstacles.length === 0) return false;
+    const cx = currPos.x;
+    const cz = currPos.y !== undefined ? currPos.y : currPos.z;
+
+    for (let i = 0; i < obstacles.length; i++) {
+      const obs = obstacles[i];
+      if (!obs) continue;
+      const ox = obs.x !== undefined ? obs.x : (obs.pos ? obs.pos.x : 0);
+      const oz =
+        obs.z !== undefined
+          ? obs.z
+          : obs.y !== undefined
+            ? obs.y
+            : obs.pos
+              ? obs.pos.z !== undefined
+                ? obs.pos.z
+                : obs.pos.y
+              : 0;
+      const radius = obs.radius !== undefined ? obs.radius : 3.5;
+
+      if (Math.hypot(cx - ox, cz - oz) <= radius) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks if moving from prevPos to currPos collides with arena bounds or any trail segment
+   */
+  checkCycleCollision(prevPos, currPos, allSegments, obstacles = []) {
+    if (this.checkBoundaryHit(currPos)) {
       return true;
     }
 
+    if (obstacles && obstacles.length > 0 && this.checkObstacleCollision(currPos, obstacles)) {
+      return true;
+    }
+
+    const prevZ = prevPos.y !== undefined ? prevPos.y : prevPos.z;
+    const currZ = currPos.y !== undefined ? currPos.y : currPos.z;
+
     for (let i = 0; i < allSegments.length; i++) {
       const seg = allSegments[i];
-      if (this.sweptSegmentHit(prevPos.x, prevPos.y, currPos.x, currPos.y, seg, 0.58)) {
+      if (this.sweptSegmentHit(prevPos.x, prevZ, currPos.x, currZ, seg, 0.58)) {
         return true;
       }
     }
@@ -1993,9 +3084,9 @@ class CollisionSystem {
   }
 
   /**
-   * Casts an orthogonal ray from (ox, oz) along (dx, dz) and returns distance to nearest wall/trail
+   * Casts an orthogonal ray from (ox, oz) along (dx, dz) and returns distance to nearest wall, trail, or obstacle
    */
-  raycastDistance(ox, oz, dx, dz, allSegments, maxDist = 200) {
+  raycastDistance(ox, oz, dx, dz, allSegments, maxDist = 200, obstacles = []) {
     let minDist = maxDist;
 
     // Distance to arena boundary
@@ -2004,29 +3095,74 @@ class CollisionSystem {
     else if (dz > 0.5) minDist = Math.min(minDist, this.halfSize - oz);
     else if (dz < -0.5) minDist = Math.min(minDist, oz + this.halfSize);
 
-    for (let i = 0; i < allSegments.length; i++) {
-      const s = allSegments[i];
-      const segMinX = Math.min(s.x1, s.x2) - 0.5;
-      const segMaxX = Math.max(s.x1, s.x2) + 0.5;
-      const segMinZ = Math.min(s.z1, s.z2) - 0.5;
-      const segMaxZ = Math.max(s.z1, s.z2) + 0.5;
+    // Distance to light trail segments
+    if (allSegments) {
+      for (let i = 0; i < allSegments.length; i++) {
+        const s = allSegments[i];
+        const segMinX = Math.min(s.x1, s.x2) - 0.5;
+        const segMaxX = Math.max(s.x1, s.x2) + 0.5;
+        const segMinZ = Math.min(s.z1, s.z2) - 0.5;
+        const segMaxZ = Math.max(s.z1, s.z2) + 0.5;
 
-      if (Math.abs(dx) > 0.5) {
-        // Horizontal ray along X
-        if (oz >= segMinZ && oz <= segMaxZ) {
-          const targetX = dx > 0 ? segMinX : segMaxX;
-          const dist = (targetX - ox) * dx;
-          if (dist > 0.2 && dist < minDist) {
-            minDist = dist;
+        if (Math.abs(dx) > 0.5) {
+          // Horizontal ray along X
+          if (oz >= segMinZ && oz <= segMaxZ) {
+            const targetX = dx > 0 ? segMinX : segMaxX;
+            const dist = (targetX - ox) * dx;
+            if (dist > 0.2 && dist < minDist) {
+              minDist = dist;
+            }
+          }
+        } else {
+          // Vertical ray along Z
+          if (ox >= segMinX && ox <= segMaxX) {
+            const targetZ = dz > 0 ? segMinZ : segMaxZ;
+            const dist = (targetZ - oz) * dz;
+            if (dist > 0.2 && dist < minDist) {
+              minDist = dist;
+            }
           }
         }
-      } else {
-        // Vertical ray along Z
-        if (ox >= segMinX && ox <= segMaxX) {
-          const targetZ = dz > 0 ? segMinZ : segMaxZ;
-          const dist = (targetZ - oz) * dz;
-          if (dist > 0.2 && dist < minDist) {
-            minDist = dist;
+      }
+    }
+
+    // Distance to arena obstacles (pillars / monoliths)
+    if (obstacles && obstacles.length > 0) {
+      for (let i = 0; i < obstacles.length; i++) {
+        const obs = obstacles[i];
+        if (!obs) continue;
+        const cx = obs.x !== undefined ? obs.x : (obs.pos ? obs.pos.x : 0);
+        const cz =
+          obs.z !== undefined
+            ? obs.z
+            : obs.y !== undefined
+              ? obs.y
+              : obs.pos
+                ? obs.pos.z !== undefined
+                  ? obs.pos.z
+                  : obs.pos.y
+                : 0;
+        const r = (obs.radius !== undefined ? obs.radius : 3.5) + 0.4;
+
+        if (Math.abs(dx) > 0.5) {
+          // Horizontal ray along X
+          const dzOff = Math.abs(oz - cz);
+          if (dzOff <= r) {
+            const halfChord = Math.sqrt(Math.max(0, r * r - dzOff * dzOff));
+            const dist = (cx - ox) * dx - halfChord;
+            if (dist > 0.2 && dist < minDist) {
+              minDist = dist;
+            }
+          }
+        } else {
+          // Vertical ray along Z
+          const dxOff = Math.abs(ox - cx);
+          if (dxOff <= r) {
+            const halfChord = Math.sqrt(Math.max(0, r * r - dxOff * dxOff));
+            const dist = (cz - oz) * dz - halfChord;
+            if (dist > 0.2 && dist < minDist) {
+              minDist = dist;
+            }
           }
         }
       }
@@ -2036,20 +3172,37 @@ class CollisionSystem {
   }
 
   /**
-   * Checks if cycle is within slipstream distance of any wall on its left or right flank
+   * Checks if cycle is within slipstream distance of any wall or obstacle on its left or right flank
    */
-  checkSlipstream(cycle, allSegments) {
+  checkSlipstream(cycle, allSegments, obstacles = []) {
     const leftDir = { x: cycle.dir.y, z: -cycle.dir.x };
     const rightDir = { x: -cycle.dir.y, z: cycle.dir.x };
-    const dLeft = this.raycastDistance(cycle.pos.x, cycle.pos.y, leftDir.x, leftDir.z, allSegments, 5);
-    const dRight = this.raycastDistance(cycle.pos.x, cycle.pos.y, rightDir.x, rightDir.z, allSegments, 5);
+    const dLeft = this.raycastDistance(
+      cycle.pos.x,
+      cycle.pos.y,
+      leftDir.x,
+      leftDir.z,
+      allSegments,
+      5,
+      obstacles
+    );
+    const dRight = this.raycastDistance(
+      cycle.pos.x,
+      cycle.pos.y,
+      rightDir.x,
+      rightDir.z,
+      allSegments,
+      5,
+      obstacles
+    );
     return dLeft < 3.6 || dRight < 3.6;
   }
 }
 
+
 // --- src/logic/AIController.js ---
 class AIController {
-  constructor(collisionSystem, difficulty = 'WARRIOR') {
+  constructor(collisionSystem, difficulty = 'NOVICE') {
     this.collision = collisionSystem;
     this.difficulty = difficulty;
     this.decisionCooldown = 0;
@@ -2059,11 +3212,12 @@ class AIController {
     this.difficulty = level;
   }
 
-  update(dt, aiCycle, playerCycle, allSegments) {
-    if (!aiCycle.alive) return;
+  update(dt, aiCycle, targetCycles, allSegments, obstacles = [], powerUps = []) {
+    if (!aiCycle || !aiCycle.alive) return;
 
-    this.decisionCooldown -= dt;
-    if (this.decisionCooldown > 0) return;
+    // Per-cycle decision cooldown so multiple AI bikes can think independently in the same frame
+    aiCycle.aiCooldown = (aiCycle.aiCooldown || 0) - dt;
+    if (aiCycle.aiCooldown > 0) return;
 
     const px = aiCycle.pos.x;
     const pz = aiCycle.pos.y;
@@ -2076,63 +3230,120 @@ class AIController {
     const rx = -fz;
     const rz = fx;
 
-    const fwdDist = this.collision.raycastDistance(px, pz, fx, fz, allSegments, 200);
-    const leftDist = this.collision.raycastDistance(px, pz, lx, lz, allSegments, 200);
-    const rightDist = this.collision.raycastDistance(px, pz, rx, rz, allSegments, 200);
+    const fwdDist = this.collision.raycastDistance(px, pz, fx, fz, allSegments, 200, obstacles);
+    const leftDist = this.collision.raycastDistance(px, pz, lx, lz, allSegments, 200, obstacles);
+    const rightDist = this.collision.raycastDistance(px, pz, rx, rz, allSegments, 200, obstacles);
 
-    // Threshold distance at which AI must turn to avoid immediate wall impact
+    // Threshold distance at which AI must turn to avoid immediate wall/pillar impact
     const dangerThreshold = this.difficulty === 'NOVICE' ? 8.5 : 13.5;
 
     // Secondary branch lookahead (estimates open reachable space down each candidate turn)
-    const leftOpenScore = this.evaluateBranchSpace(px, pz, lx, lz, leftDist, allSegments);
-    const rightOpenScore = this.evaluateBranchSpace(px, pz, rx, rz, rightDist, allSegments);
-    const fwdOpenScore = this.evaluateBranchSpace(px, pz, fx, fz, fwdDist, allSegments);
+    const leftOpenScore = this.evaluateBranchSpace(px, pz, lx, lz, leftDist, allSegments, obstacles);
+    const rightOpenScore = this.evaluateBranchSpace(px, pz, rx, rz, rightDist, allSegments, obstacles);
+    const fwdOpenScore = this.evaluateBranchSpace(px, pz, fx, fz, fwdDist, allSegments, obstacles);
 
-    // Aggressive cutoff bonus when AI is near player and can cross in front of player's nose
-    let leftCutoffBonus = 0;
-    let rightCutoffBonus = 0;
-    if (playerCycle.alive && this.difficulty !== 'NOVICE') {
-      const toPlayerX = playerCycle.pos.x - px;
-      const toPlayerZ = playerCycle.pos.y - pz;
-      const distToPlayer = Math.hypot(toPlayerX, toPlayerZ);
+    // Normalize targetCycles (supports a single cycle object OR an array of cycles for 3-4 bike battles)
+    const candidates = Array.isArray(targetCycles)
+      ? targetCycles
+      : targetCycles
+        ? [targetCycles]
+        : [];
 
-      if (distToPlayer < 65) {
-        const playerFutureX = playerCycle.pos.x + playerCycle.dir.x * 18;
-        const playerFutureZ = playerCycle.pos.y + playerCycle.dir.y * 18;
-        const vecFutureX = playerFutureX - px;
-        const vecFutureZ = playerFutureZ - pz;
-
-        const dotLeft = vecFutureX * lx + vecFutureZ * lz;
-        const dotRight = vecFutureX * rx + vecFutureZ * rz;
-
-        const cutoffWeight = this.difficulty === 'MCP' ? 28 : 14;
-        if (dotLeft > 8 && leftDist > 28) leftCutoffBonus = cutoffWeight;
-        if (dotRight > 8 && rightDist > 28) rightCutoffBonus = cutoffWeight;
+    let nearestTarget = null;
+    let nearestDist = Infinity;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (!c || c === aiCycle || !c.alive) continue;
+      const d = Math.hypot(c.pos.x - px, c.pos.y - pz);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestTarget = c;
       }
     }
+
+    // Aggressive cutoff bonus when AI is near an opponent and can cross in front of its nose
+    let leftCutoffBonus = 0;
+    let rightCutoffBonus = 0;
+    if (nearestTarget && this.difficulty !== 'NOVICE' && nearestDist < 65) {
+      const targetFutureX = nearestTarget.pos.x + nearestTarget.dir.x * 18;
+      const targetFutureZ = nearestTarget.pos.y + nearestTarget.dir.y * 18;
+      const vecFutureX = targetFutureX - px;
+      const vecFutureZ = targetFutureZ - pz;
+
+      const dotLeft = vecFutureX * lx + vecFutureZ * lz;
+      const dotRight = vecFutureX * rx + vecFutureZ * rz;
+
+      const cutoffWeight = this.difficulty === 'MCP' ? 28 : 14;
+      if (dotLeft > 8 && leftDist > 28) leftCutoffBonus = cutoffWeight;
+      if (dotRight > 8 && rightDist > 28) rightCutoffBonus = cutoffWeight;
+    }
+
+    // Smart Power-Up attraction: if an active power-up is within 45 units and turning toward it is safe (dist > 25)
+    let leftPowerUpBonus = 0;
+    let rightPowerUpBonus = 0;
+    let wantsPowerUpTurn = false;
+    if (powerUps && powerUps.length > 0) {
+      for (let i = 0; i < powerUps.length; i++) {
+        const pu = powerUps[i];
+        if (!pu || pu.active === false || pu.collected) continue;
+        const pux = pu.x !== undefined ? pu.x : (pu.pos ? pu.pos.x : 0);
+        const puz =
+          pu.z !== undefined
+            ? pu.z
+            : pu.y !== undefined
+              ? pu.y
+              : pu.pos
+                ? pu.pos.z !== undefined
+                  ? pu.pos.z
+                  : pu.pos.y
+                : 0;
+
+        const toPuX = pux - px;
+        const toPuZ = puz - pz;
+        const distToPu = Math.hypot(toPuX, toPuZ);
+
+        if (distToPu < 45) {
+          const dotLeft = toPuX * lx + toPuZ * lz;
+          const dotRight = toPuX * rx + toPuZ * rz;
+          const dotFwd = toPuX * fx + toPuZ * fz;
+
+          if (dotLeft > 6 && leftDist > 25) {
+            leftPowerUpBonus = Math.max(leftPowerUpBonus, 24);
+            if (Math.abs(dotFwd) < 16) wantsPowerUpTurn = true;
+          }
+          if (dotRight > 6 && rightDist > 25) {
+            rightPowerUpBonus = Math.max(rightPowerUpBonus, 24);
+            if (Math.abs(dotFwd) < 16) wantsPowerUpTurn = true;
+          }
+        }
+      }
+    }
+
+    const leftBonus = leftCutoffBonus + leftPowerUpBonus;
+    const rightBonus = rightCutoffBonus + rightPowerUpBonus;
 
     // Decide whether to turn now
     const mustTurn = fwdDist < dangerThreshold;
     const opportunisticTurn =
       !mustTurn &&
-      fwdDist < 55 &&
-      Math.random() < (this.difficulty === 'MCP' ? 0.08 : 0.045) &&
-      Math.max(leftOpenScore + leftCutoffBonus, rightOpenScore + rightCutoffBonus) >
-        fwdOpenScore * 1.25;
+      ((fwdDist < 55 &&
+        Math.random() < (this.difficulty === 'MCP' ? 0.08 : 0.045) &&
+        Math.max(leftOpenScore + leftBonus, rightOpenScore + rightBonus) > fwdOpenScore * 1.25) ||
+        (wantsPowerUpTurn && Math.random() < 0.25));
 
     if (mustTurn || opportunisticTurn) {
-      const totalLeft = leftOpenScore + leftCutoffBonus + (Math.random() * 4 - 2);
-      const totalRight = rightOpenScore + rightCutoffBonus + (Math.random() * 4 - 2);
+      const totalLeft = leftOpenScore + leftBonus + (Math.random() * 4 - 2);
+      const totalRight = rightOpenScore + rightBonus + (Math.random() * 4 - 2);
 
       if (totalLeft > totalRight && leftDist > 4.5) {
         aiCycle.queueTurn('LEFT');
-        this.decisionCooldown = 0.14;
+        aiCycle.aiCooldown = 0.14;
       } else if (rightDist > 4.5) {
         aiCycle.queueTurn('RIGHT');
-        this.decisionCooldown = 0.14;
+        aiCycle.aiCooldown = 0.14;
       } else if (leftDist > rightDist) {
         aiCycle.queueTurn('LEFT');
-        this.decisionCooldown = 0.12;
+        aiCycle.aiCooldown = 0.12;
       }
     }
 
@@ -2146,7 +3357,7 @@ class AIController {
     }
   }
 
-  evaluateBranchSpace(ox, oz, dx, dz, primaryDist, allSegments) {
+  evaluateBranchSpace(ox, oz, dx, dz, primaryDist, allSegments, obstacles = []) {
     if (primaryDist < 4) return primaryDist;
     if (this.difficulty === 'NOVICE') return primaryDist;
 
@@ -2160,14 +3371,39 @@ class AIController {
     const perp2x = -dz;
     const perp2z = dx;
 
-    const escape1 = this.collision.raycastDistance(sx, sz, perp1x, perp1z, allSegments, 120);
-    const escape2 = this.collision.raycastDistance(sx, sz, perp2x, perp2z, allSegments, 120);
+    const escape1 = this.collision.raycastDistance(
+      sx,
+      sz,
+      perp1x,
+      perp1z,
+      allSegments,
+      120,
+      obstacles
+    );
+    const escape2 = this.collision.raycastDistance(
+      sx,
+      sz,
+      perp2x,
+      perp2z,
+      allSegments,
+      120,
+      obstacles
+    );
 
     return primaryDist + (escape1 + escape2) * 0.45;
   }
 }
 
+
 // --- src/main.js ---
+
+
+
+
+
+
+
+
 
 class TronGame {
   constructor() {
@@ -2185,7 +3421,7 @@ class TronGame {
     this.renderer.setClearColor(0x03060e);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x03060e, 0.0028);
+    this.scene.fog = new THREE.FogExp2(0x03060e, 0.0025);
 
     // Lighting
     const ambient = new THREE.AmbientLight(0x284b7a, 1.3);
@@ -2214,35 +3450,63 @@ class TronGame {
 
       this.bloomPass = new THREE.UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.75, // strength
-        0.45, // radius
-        0.22  // threshold
+        0.75,
+        0.45,
+        0.22
       );
       this.composer.addPass(this.bloomPass);
     }
 
-    // Create Player (Cyan) & CPU (Orange) Light Cycles facing each other
+    // Create Player (Cyan) & Pool of up to 3 CPU Opponents (Orange, Yellow, Red-Magenta)
     this.player = new LightCycle(this.scene, {
       name: 'PLAYER',
       color: 0x00f3ff,
+      secondaryColor: 0x99ffff,
       isPlayer: true,
-      startX: -48,
+      startX: -52,
       startZ: 0,
       startDir: new THREE.Vector2(1, 0)
     });
 
-    this.ai = new LightCycle(this.scene, {
-      name: 'CPU',
-      color: 0xff6600,
-      isPlayer: false,
-      startX: 48,
-      startZ: 0,
-      startDir: new THREE.Vector2(-1, 0)
-    });
+    this.aiPool = [
+      new LightCycle(this.scene, {
+        name: 'SARK (ORANGE)',
+        color: 0xff6600,
+        secondaryColor: 0xffcc66,
+        isPlayer: false,
+        startX: 52,
+        startZ: 0,
+        startDir: new THREE.Vector2(-1, 0)
+      }),
+      new LightCycle(this.scene, {
+        name: 'CLU (YELLOW)',
+        color: 0xffe600,
+        secondaryColor: 0xffff99,
+        isPlayer: false,
+        startX: 0,
+        startZ: -52,
+        startDir: new THREE.Vector2(0, 1)
+      }),
+      new LightCycle(this.scene, {
+        name: 'GUARD (CRIMSON)',
+        color: 0xff1a66,
+        secondaryColor: 0xff99bb,
+        isPlayer: false,
+        startX: 0,
+        startZ: 52,
+        startDir: new THREE.Vector2(0, -1)
+      })
+    ];
+
+    // Game Mode: 'DUEL' (1v1) | 'BATTLE' (4-Bike Free-For-All) | 'GAUNTLET' (Endless Survival Waves)
+    this.gameMode = 'DUEL';
+    this.activeAICycles = [this.aiPool[0]];
+    this.gauntletWave = 1;
+    this.powerUpSpawnTimer = 0;
 
     this.introSequence = new IntroSequence(
       this.player,
-      this.ai,
+      this.activeAICycles,
       this.cameraRig,
       this.audio,
       {
@@ -2251,11 +3515,13 @@ class TronGame {
       }
     );
 
-    // State: 'MENU' | 'INTRO' | 'PLAYING' | 'DEREZZ'
+    // State: 'MENU' | 'INTRO' | 'PLAYING' | 'PAUSED' | 'VICTORY' | 'DEREZZ'
     this.state = 'MENU';
     this.playerScore = 0;
     this.aiScore = 0;
     this.crashPoint = new THREE.Vector3();
+    this.winnerCycle = null;
+    this.pauseOrbitDir = 0;
 
     this.bindUI();
     this.bindInput();
@@ -2286,7 +3552,18 @@ class TronGame {
         card.classList.add('selected');
         const diff = card.getAttribute('data-diff-select');
         this.aiController.setDifficulty(diff);
-        document.getElementById('cpu-label').textContent = `CPU (${diff})`;
+        this.updateModeLabel();
+      });
+    });
+
+    // Single-Player Arena Mode Selection Cards (1v1 Duel, 4-Bike Battle, Gauntlet Waves)
+    const modeCards = document.querySelectorAll('[data-mode-select]');
+    modeCards.forEach((card) => {
+      card.addEventListener('click', () => {
+        modeCards.forEach((c) => c.classList.remove('selected'));
+        card.classList.add('selected');
+        this.gameMode = card.getAttribute('data-mode-select');
+        this.updateModeLabel();
       });
     });
 
@@ -2314,6 +3591,15 @@ class TronGame {
       hudSoundBtn.blur();
     });
 
+    // Pause Button in Top HUD
+    const hudPauseBtn = document.getElementById('hud-pause-btn');
+    if (hudPauseBtn) {
+      hudPauseBtn.addEventListener('click', () => {
+        this.togglePause();
+        hudPauseBtn.blur();
+      });
+    }
+
     // Launch Match Button
     document.getElementById('launch-btn').addEventListener('click', (e) => {
       e.currentTarget.blur();
@@ -2332,21 +3618,31 @@ class TronGame {
       document.getElementById('gameover-modal').classList.add('hidden');
       document.getElementById('start-modal').classList.remove('hidden');
       this.state = 'MENU';
+      this.audio.stopMusic();
       this.syncCockpitHUDVisibility();
     });
   }
 
-  syncCockpitHUDVisibility() {
-    const isPlaying = this.state === 'PLAYING';
-    // Top & Bottom HUD bars only appear during active gameplay (after the intro animation)
-    document.getElementById('hud-top').classList.toggle('hud-hidden', !isPlaying);
-    document.getElementById('hud-bottom').classList.toggle('hud-hidden', !isPlaying);
+  updateModeLabel() {
+    const diff = this.aiController.difficulty;
+    const modeTag =
+      this.gameMode === 'BATTLE'
+        ? '4-BIKE GRID'
+        : this.gameMode === 'GAUNTLET'
+        ? `WAVE ${this.gauntletWave}`
+        : '1v1 DUEL';
+    document.getElementById('cpu-label').textContent = `${modeTag} (${diff})`;
+  }
 
-    // First-Person Cockpit HUD only appears during active gameplay in First-Person mode
+  syncCockpitHUDVisibility() {
+    const isPlayingOrPaused = this.state === 'PLAYING' || this.state === 'PAUSED';
+    document.getElementById('hud-top').classList.toggle('hud-hidden', !isPlayingOrPaused);
+    document.getElementById('hud-bottom').classList.toggle('hud-hidden', !isPlayingOrPaused);
+
     const cockpit = document.getElementById('cockpit-overlay');
     cockpit.classList.toggle(
       'active',
-      isPlaying && this.cameraRig.mode === VIEW_MODES.FIRST_PERSON
+      this.state === 'PLAYING' && this.cameraRig.mode === VIEW_MODES.FIRST_PERSON
     );
   }
 
@@ -2354,6 +3650,7 @@ class TronGame {
     this.audio.setMuted(!enabled);
     if (enabled && this.state === 'PLAYING') {
       this.audio.startEngine();
+      this.audio.startMusic();
     }
     const soundCheckbox = document.getElementById('sound-checkbox');
     if (soundCheckbox) {
@@ -2366,26 +3663,51 @@ class TronGame {
     }
   }
 
+  togglePause() {
+    const countBanner = document.getElementById('countdown-banner');
+    const stageBanner = document.getElementById('intro-stage-banner');
+    const pauseBtn = document.getElementById('hud-pause-btn');
+
+    if (this.state === 'PLAYING') {
+      this.state = 'PAUSED';
+      this.audio.stopEngine();
+      this.audio.stopMusic();
+      countBanner.style.display = 'block';
+      countBanner.textContent = 'PAUSED';
+      stageBanner.style.display = 'block';
+      stageBanner.textContent = 'FREE ORBIT INSPECTION // [A/D] ROTATE CAMERA • [P / ESC] RESUME';
+      if (pauseBtn) pauseBtn.textContent = 'RESUME [P]';
+      this.syncCockpitHUDVisibility();
+    } else if (this.state === 'PAUSED') {
+      this.state = 'PLAYING';
+      countBanner.style.display = 'none';
+      stageBanner.style.display = 'none';
+      if (pauseBtn) pauseBtn.textContent = 'PAUSE [P]';
+      if (!this.audio.muted) {
+        this.audio.startEngine();
+        this.audio.startMusic();
+      }
+      this.syncCockpitHUDVisibility();
+    }
+  }
+
   setCameraView(mode) {
     this.cameraRig.setMode(mode, this.player, (activeMode) => {
-      // Update HUD buttons
       document.querySelectorAll('[data-hud-cam]').forEach((btn) => {
         btn.classList.toggle('active', btn.getAttribute('data-hud-cam') === activeMode);
       });
-      // Update Start Modal cards
       document.querySelectorAll('[data-cam-select]').forEach((card) => {
         card.classList.toggle('selected', card.getAttribute('data-cam-select') === activeMode);
       });
       this.syncCockpitHUDVisibility();
 
-      // Update bottom control hint text
       const hint = document.getElementById('controls-hint-text');
       if (activeMode === VIEW_MODES.BIRDS_EYE) {
         hint.innerHTML =
-          '<strong>BIRD\'S-EYE CONTROLS:</strong> [W/A/S/D] or [ARROWS] Cardinal Direction &bull; [SHIFT/SPACE] Boost &bull; [1/2/3 or C] Switch View';
+          '<strong>BIRD\'S-EYE:</strong> [W/A/S/D or ARROWS] Steer &bull; [SHIFT/SPACE] Boost &bull; [P] Pause &bull; [M] Sound &bull; [1/2/3/C] View';
       } else {
         hint.innerHTML =
-          '<strong>3D STEERING:</strong> [A / &larr;] Turn 90&deg; Left &bull; [D / &rarr;] Turn 90&deg; Right &bull; [W / &uarr; / SHIFT] Boost &bull; [1/2/3 or C] Switch View';
+          '<strong>3D STEERING:</strong> [A/&larr;] Left &bull; [D/&rarr;] Right &bull; [W/&uarr;/SHIFT] Boost &bull; [S/&darr;] Brake &bull; [P] Pause &bull; [1/2/3/C] View';
       }
     });
   }
@@ -2409,7 +3731,7 @@ class TronGame {
           return;
         }
 
-        // Live Camera Switching anytime via 1 / 2 / 3 or C, and Sound Mute via M
+        // Camera Switching & Sound & Pause
         if (code === 'Digit1' || key === '1') {
           this.setCameraView(VIEW_MODES.BIRDS_EYE);
           return;
@@ -2425,16 +3747,26 @@ class TronGame {
         } else if (code === 'KeyM' || key === 'm') {
           this.setSoundEnabled(this.audio.muted);
           return;
+        } else if (code === 'KeyP' || key === 'p' || code === 'Escape' || key === 'escape') {
+          if (this.state === 'PLAYING' || this.state === 'PAUSED') {
+            e.preventDefault();
+            this.togglePause();
+            return;
+          }
         }
 
-        // Start from Menu with Space or Enter
+        if (this.state === 'PAUSED') {
+          if (isLeft) this.pauseOrbitDir = -1.4;
+          if (isRight) this.pauseOrbitDir = 1.4;
+          return;
+        }
+
         if (this.state === 'MENU' && (isSpace || isEnter)) {
           e.preventDefault();
           this.startNewRound();
           return;
         }
 
-        // Skip Intro or Queue Initial Turn during Intro
         if (this.state === 'INTRO') {
           if (isSpace || isEnter) {
             e.preventDefault();
@@ -2449,8 +3781,7 @@ class TronGame {
           return;
         }
 
-        // Rematch on Space or Enter after Derezz
-        if (this.state === 'DEREZZ' && (isSpace || isEnter)) {
+        if ((this.state === 'DEREZZ' || this.state === 'VICTORY') && (isSpace || isEnter)) {
           e.preventDefault();
           this.startNewRound();
           return;
@@ -2463,21 +3794,24 @@ class TronGame {
           const effDir = this.player.getEffectivePlannedDirection();
           if (isUp) {
             e.preventDefault();
-            // If moving horizontally, turn North (-Z); if already vertical, engage boost
             if (Math.abs(effDir.x) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(0, -1));
-            } else {
+            } else if (effDir.y < -0.5) {
               this.player.isBoosting = true;
+            } else {
+              this.player.isBraking = true;
             }
           } else if (isDown) {
             e.preventDefault();
-            // If moving horizontally, turn South (+Z)
             if (Math.abs(effDir.x) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(0, 1));
+            } else if (effDir.y > 0.5) {
+              this.player.isBoosting = true;
+            } else {
+              this.player.isBraking = true;
             }
           } else if (isLeft) {
             e.preventDefault();
-            // If moving vertically, turn West (-X); if moving horizontally, relative turn Left
             if (Math.abs(effDir.y) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(-1, 0));
             } else {
@@ -2485,7 +3819,6 @@ class TronGame {
             }
           } else if (isRight) {
             e.preventDefault();
-            // If moving vertically, turn East (+X); if moving horizontally, relative turn Right
             if (Math.abs(effDir.y) > 0.5) {
               this.player.queueCardinalDirection(new THREE.Vector2(1, 0));
             } else {
@@ -2496,7 +3829,7 @@ class TronGame {
             this.player.isBoosting = true;
           }
         } else {
-          // Relative 90° steering for Over-the-Shoulder and First-Person views
+          // 3D Views: A/D = Turn Left/Right, W/Up/Shift/Space = Boost, S/Down = Speed Brake!
           if (isLeft) {
             e.preventDefault();
             this.player.queueTurn('LEFT');
@@ -2506,6 +3839,14 @@ class TronGame {
           } else if (isUp || isShift || isSpace) {
             e.preventDefault();
             this.player.isBoosting = true;
+            this.player.isBraking = false;
+          } else if (isDown) {
+            e.preventDefault();
+            if (!this.player.isBraking) {
+              this.audio.playBrake();
+            }
+            this.player.isBraking = true;
+            this.player.isBoosting = false;
           }
         }
       },
@@ -2528,6 +3869,19 @@ class TronGame {
       ) {
         this.player.isBoosting = false;
       }
+      if (code === 'KeyS' || code === 'ArrowDown' || key === 's' || key === 'arrowdown') {
+        this.player.isBraking = false;
+      }
+      if (
+        code === 'KeyA' ||
+        code === 'ArrowLeft' ||
+        code === 'KeyD' ||
+        code === 'ArrowRight' ||
+        key === 'a' ||
+        key === 'd'
+      ) {
+        this.pauseOrbitDir = 0;
+      }
     });
   }
 
@@ -2537,8 +3891,30 @@ class TronGame {
     document.getElementById('proximity-warning').style.display = 'none';
 
     this.particles.clear();
+    this.arena.clearWallBreaches();
+    this.arena.clearPowerUps();
+    this.arena.spawnArenaObstacles(4);
+    this.spawnInitialPowerUps();
+
     this.player.reset();
-    this.ai.reset();
+    this.gauntletWave = 1;
+    this.updateModeLabel();
+
+    // Configure active AI Opponents based on chosen Game Mode
+    const aiCount = this.gameMode === 'BATTLE' ? 3 : 1;
+    this.activeAICycles = [];
+    this.aiPool.forEach((ai, idx) => {
+      if (idx < aiCount) {
+        ai.reset();
+        this.activeAICycles.push(ai);
+      } else {
+        ai.alive = false;
+        ai.root.visible = false;
+        ai.clearTrails();
+      }
+    });
+
+    this.introSequence.setAICycles(this.activeAICycles);
 
     const playIntro = document.getElementById('intro-checkbox').checked;
     if (playIntro) {
@@ -2547,6 +3923,106 @@ class TronGame {
       this.introSequence.start();
     } else {
       this.beginActiveRace();
+    }
+  }
+
+  spawnInitialPowerUps() {
+    const types = ['OVERCHARGE', 'PHASE_SHIFT', 'TRAIL_ERASER'];
+    const spots = [
+      { x: 0, z: 0 },
+      { x: -32, z: -32 },
+      { x: 32, z: 32 }
+    ];
+    spots.forEach((pt, idx) => {
+      this.arena.spawnPowerUp(types[idx % types.length], pt.x, pt.z);
+    });
+    this.powerUpSpawnTimer = 7.0;
+  }
+
+  spawnGauntletWave() {
+    this.gauntletWave++;
+    this.updateModeLabel();
+    this.audio.playVictoryFanfare();
+    this.audio.setMusicIntensity(Math.min(1.8, 1.0 + this.gauntletWave * 0.15));
+
+    // Show Wave Banner
+    const stageBanner = document.getElementById('intro-stage-banner');
+    stageBanner.style.display = 'block';
+    stageBanner.textContent = `GAUNTLET WAVE ${this.gauntletWave} // NEW CPU CHALLENGERS REZZING ON GRID!`;
+    setTimeout(() => {
+      if (this.state === 'PLAYING') stageBanner.style.display = 'none';
+    }, 2200);
+
+    // Spawn 1 or 2 fresh AI cycles at safe spawn positions
+    const count = Math.min(3, 1 + Math.floor(this.gauntletWave / 2));
+    this.activeAICycles = [];
+    const safeSpawns = [
+      { x: 60, z: 0, dir: new THREE.Vector2(-1, 0) },
+      { x: 0, z: -60, dir: new THREE.Vector2(0, 1) },
+      { x: 0, z: 60, dir: new THREE.Vector2(0, -1) }
+    ];
+
+    for (let i = 0; i < count; i++) {
+      const ai = this.aiPool[i];
+      const sp = safeSpawns[i];
+      // Pick spawn farthest from player
+      ai.startX = this.player.pos.x > 0 ? -60 : sp.x;
+      ai.startZ = sp.z;
+      ai.startDir.copy(sp.dir);
+      ai.reset();
+      ai.setCompletedIntroState();
+      this.activeAICycles.push(ai);
+    }
+  }
+
+  checkPowerUpPickups(allCycles) {
+    for (let i = this.arena.powerUps.length - 1; i >= 0; i--) {
+      const pu = this.arena.powerUps[i];
+      for (const cycle of allCycles) {
+        if (!cycle.alive) continue;
+        const dist = Math.hypot(cycle.pos.x - pu.x, cycle.pos.z - pu.z);
+        if (dist < 2.6) {
+          this.applyPowerUp(cycle, pu);
+          this.arena.removePowerUp(pu);
+          break;
+        }
+      }
+    }
+  }
+
+  applyPowerUp(cycle, pu) {
+    this.particles.spawnPowerUpBurst(pu.x, pu.z, pu.color);
+    if (cycle.isPlayer) {
+      this.audio.playPowerUp(pu.type);
+    }
+
+    const stageBanner = document.getElementById('intro-stage-banner');
+    if (pu.type === 'OVERCHARGE') {
+      cycle.boostEnergy = 100;
+      if (cycle.isPlayer) {
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // TURBINE OVERCHARGE (100% BOOST)';
+      }
+    } else if (pu.type === 'PHASE_SHIFT') {
+      cycle.phaseShiftTimer = 3.5;
+      if (cycle.isPlayer) {
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // PHASE-SHIFT ACTIVE (3.5s TRAIL IMMUNITY!)';
+      }
+    } else if (pu.type === 'TRAIL_ERASER') {
+      if (cycle.isPlayer) {
+        this.activeAICycles.forEach((ai) => ai.clearTrails());
+        stageBanner.style.display = 'block';
+        stageBanner.textContent = 'POWER-UP // ENEMY LIGHT TRAILS DEREZZED!';
+      } else {
+        this.player.clearTrails();
+      }
+    }
+
+    if (cycle.isPlayer) {
+      setTimeout(() => {
+        if (this.state === 'PLAYING') stageBanner.style.display = 'none';
+      }, 1800);
     }
   }
 
@@ -2562,8 +4038,9 @@ class TronGame {
   beginActiveRace() {
     this.state = 'PLAYING';
     this.player.setCompletedIntroState();
-    this.ai.setCompletedIntroState();
+    this.activeAICycles.forEach((ai) => ai.setCompletedIntroState());
     this.syncCockpitHUDVisibility();
+
     const stageBanner = document.getElementById('intro-stage-banner');
     const countBanner = document.getElementById('countdown-banner');
     stageBanner.style.display = 'none';
@@ -2577,66 +4054,78 @@ class TronGame {
 
     this.player.setFirstPersonVisibility(this.cameraRig.mode === VIEW_MODES.FIRST_PERSON);
     this.audio.startEngine();
+    this.audio.startMusic();
   }
 
-  triggerDerezz(playerHit, aiHit) {
-    this.state = 'DEREZZ';
-    this.syncCockpitHUDVisibility();
-    this.audio.playDerezz();
+  triggerMatchEnd(outcome, breachCycle = null) {
+    this.audio.stopEngine();
+    this.audio.stopMusic();
     document.getElementById('proximity-warning').style.display = 'none';
 
     let title = '';
     let subtitle = '';
 
-    if (playerHit && aiHit) {
+    if (outcome === 'BREACH') {
+      this.state = 'VICTORY';
+      this.playerScore++;
+      this.winnerCycle = breachCycle || this.player;
+      this.audio.playWallBreach();
+      this.audio.playVictoryFanfare();
+      title = 'GRID WALL BREACHED — ESCAPED!';
+      subtitle = '1982 FLYNN ESCAPE ACHIEVED // OFF THE GRID!';
+    } else if (outcome === 'PLAYER_WIN') {
+      this.state = 'VICTORY';
+      this.playerScore++;
+      this.winnerCycle = this.player;
+      this.audio.playVictoryFanfare();
+      title = 'ALL CPUS DEREZZED — VICTORY!';
+      subtitle = 'LEGO USER CLAIMS THE GAME GRID';
+    } else if (outcome === 'DRAW') {
+      this.state = 'DEREZZ';
+      this.audio.playDerezz();
       title = 'SIMULTANEOUS DEREZZ';
       subtitle = 'MUTUAL GRID COLLISION // DRAW ROUND';
-      this.player.root.visible = false;
-      this.ai.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
-      this.particles.spawnDerezzExplosion(this.ai.pos.x, this.ai.pos.y, 0xff6600);
-      this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
-    } else if (playerHit) {
-      this.aiScore++;
-      title = 'USER DEREZZED';
-      subtitle = 'CPU CLAIMS THE GRID SECTOR';
-      this.player.alive = false;
-      this.player.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
-      this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
     } else {
-      this.playerScore++;
-      title = 'CPU DEREZZED — VICTORY!';
-      subtitle = 'USER DOMINATES THE GRID';
-      this.ai.alive = false;
-      this.ai.root.visible = false;
-      this.particles.spawnDerezzExplosion(this.ai.pos.x, this.ai.pos.y, 0xff6600);
-      this.crashPoint.set(this.ai.pos.x, 0, this.ai.pos.y);
+      this.state = 'DEREZZ';
+      this.aiScore++;
+      this.audio.playDerezz();
+      title = 'USER DEREZZED';
+      subtitle =
+        this.gameMode === 'GAUNTLET'
+          ? `SURVIVED TO GAUNTLET WAVE ${this.gauntletWave}`
+          : 'CPU CLAIMS THE GRID SECTOR';
     }
 
+    this.syncCockpitHUDVisibility();
     document.getElementById('score-player').textContent = `P1: ${this.playerScore}`;
     document.getElementById('score-ai').textContent = `CPU: ${this.aiScore}`;
 
     const titleEl = document.getElementById('gameover-title');
     titleEl.textContent = title;
-    titleEl.style.color = playerHit && !aiHit ? '#ff6600' : '#00f3ff';
+    titleEl.style.color = outcome === 'CPU_WIN' ? '#ff6600' : '#00f3ff';
     document.getElementById('gameover-sub').textContent = subtitle;
 
     setTimeout(() => {
-      if (this.state === 'DEREZZ') {
+      if (this.state === 'DEREZZ' || this.state === 'VICTORY') {
         document.getElementById('gameover-modal').classList.remove('hidden');
       }
-    }, 1150);
+    }, 1500);
   }
 
   updateHUD(allSegments) {
-    // Boost Meter & Speed Readout
     const boostFill = document.getElementById('boost-fill');
     boostFill.style.width = `${Math.round(this.player.boostEnergy)}%`;
 
     const kmh = Math.round(this.player.currentSpeed * 3.4);
-    const slipTag = this.player.inSlipstream ? ' [SLIPSTREAM +]' : '';
-    document.getElementById('speed-readout').textContent = `${kmh} KM/H${slipTag}`;
+    let statusTag = '';
+    if (this.player.phaseShiftTimer > 0) {
+      statusTag = ` [PHASE ${this.player.phaseShiftTimer.toFixed(1)}s]`;
+    } else if (this.player.inSlipstream) {
+      statusTag = ' [SLIPSTREAM +]';
+    } else if (this.player.isBraking) {
+      statusTag = ' [BRAKE]';
+    }
+    document.getElementById('speed-readout').textContent = `${kmh} KM/H${statusTag}`;
 
     // Forward Wall Proximity Warning & First-Person Tactical HUD
     const warnEl = document.getElementById('proximity-warning');
@@ -2653,7 +4142,8 @@ class TronGame {
       fx,
       fz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
     const leftClearance = this.collision.raycastDistance(
       this.player.pos.x,
@@ -2661,7 +4151,8 @@ class TronGame {
       lx,
       lz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
     const rightClearance = this.collision.raycastDistance(
       this.player.pos.x,
@@ -2669,7 +4160,8 @@ class TronGame {
       rx,
       rz,
       allSegments,
-      200
+      200,
+      this.arena.obstacles
     );
 
     if (this.state === 'PLAYING' && this.cameraRig.mode !== VIEW_MODES.BIRDS_EYE) {
@@ -2684,15 +4176,13 @@ class TronGame {
     }
 
     if (this.cameraRig.mode === VIEW_MODES.FIRST_PERSON) {
-      this.updateFirstPersonHUD(fwdClearance, leftClearance, rightClearance, kmh, slipTag);
+      this.updateFirstPersonHUD(fwdClearance, leftClearance, rightClearance, kmh, statusTag);
     }
 
-    // Render 2D Radar Minimap
     this.renderRadar();
   }
 
-  updateFirstPersonHUD(fwdDist, leftDist, rightDist, kmh, slipTag) {
-    // 1. Cardinal Compass Heading
+  updateFirstPersonHUD(fwdDist, leftDist, rightDist, kmh, statusTag) {
     const dx = this.player.dir.x;
     const dz = this.player.dir.y;
     let headingText = 'EAST (090°)';
@@ -2702,18 +4192,30 @@ class TronGame {
     else if (dz > 0.5) headingText = 'SOUTH (180°)';
     document.getElementById('fp-heading-val').textContent = headingText;
 
-    // 2. Relative Bearing to CPU Opponent
-    const toAiX = this.ai.pos.x - this.player.pos.x;
-    const toAiZ = this.ai.pos.y - this.player.pos.y;
-    const aiDist = Math.round(Math.hypot(toAiX, toAiZ));
-    const fwdDot = toAiX * dx + toAiZ * dz;
-    const rightDot = toAiX * -dz + toAiZ * dx;
+    // Nearest living AI Cycle bearing
+    let nearestAI = this.activeAICycles.find((a) => a.alive) || this.activeAICycles[0];
+    let bestDist = Infinity;
+    this.activeAICycles.forEach((a) => {
+      if (!a.alive) return;
+      const d = Math.hypot(a.pos.x - this.player.pos.x, a.pos.y - this.player.pos.y);
+      if (d < bestDist) {
+        bestDist = d;
+        nearestAI = a;
+      }
+    });
 
-    let verticalRel = Math.abs(fwdDot) < 10 ? '' : (fwdDot > 0 ? 'AHEAD ' : 'BEHIND ');
-    let sideRel = Math.abs(rightDot) < 10 ? 'CENTER' : (rightDot > 0 ? 'RIGHT' : 'LEFT');
-    document.getElementById('fp-enemy-bearing').textContent = `CPU: ${verticalRel}${sideRel} (${aiDist}m)`;
+    if (nearestAI) {
+      const toAiX = nearestAI.pos.x - this.player.pos.x;
+      const toAiZ = nearestAI.pos.y - this.player.pos.y;
+      const aiDist = Math.round(Math.hypot(toAiX, toAiZ));
+      const fwdDot = toAiX * dx + toAiZ * dz;
+      const rightDot = toAiX * -dz + toAiZ * dx;
 
-    // 3. Left & Right Blind-Spot Turn Clearance Sensors
+      const verticalRel = Math.abs(fwdDot) < 10 ? '' : fwdDot > 0 ? 'AHEAD ' : 'BEHIND ';
+      const sideRel = Math.abs(rightDot) < 10 ? 'CENTER' : rightDot > 0 ? 'RIGHT' : 'LEFT';
+      document.getElementById('fp-enemy-bearing').textContent = `CPU: ${verticalRel}${sideRel} (${aiDist}m)`;
+    }
+
     const updateSideSensor = (sidePrefix, dist) => {
       const box = document.getElementById(`fp-${sidePrefix}-sensor`);
       const distEl = document.getElementById(`fp-${sidePrefix}-dist`);
@@ -2746,12 +4248,11 @@ class TronGame {
     updateSideSensor('left', leftDist);
     updateSideSensor('right', rightDist);
 
-    // 4. Forward Rangefinder & Turn Advisor when approaching a wall
     const fwdEl = document.getElementById('fp-fwd-range');
     const advisorEl = document.getElementById('fp-turn-advisor');
     const fRound = Math.round(fwdDist);
     fwdEl.textContent = `FWD RANGE: ${fRound}m`;
-    fwdEl.style.color = fwdDist < 28 ? '#ff2a55' : (fwdDist < 50 ? '#ffcc00' : '#00f3ff');
+    fwdEl.style.color = fwdDist < 28 ? '#ff2a55' : fwdDist < 50 ? '#ffcc00' : '#00f3ff';
 
     if (fwdDist < 42) {
       advisorEl.style.display = 'block';
@@ -2766,8 +4267,7 @@ class TronGame {
       advisorEl.style.display = 'none';
     }
 
-    // 5. Bottom Cockpit Dash Speed & Boost
-    document.getElementById('fp-dash-speed').textContent = `${kmh} KM/H${slipTag}`;
+    document.getElementById('fp-dash-speed').textContent = `${kmh} KM/H${statusTag}`;
     document.getElementById('fp-dash-boost').style.width = `${Math.round(this.player.boostEnergy)}%`;
   }
 
@@ -2777,7 +4277,6 @@ class TronGame {
     const h = this.radarCanvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    // Subtle radar grid
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.14)';
     ctx.lineWidth = 1;
     for (let i = 1; i < 4; i++) {
@@ -2795,6 +4294,22 @@ class TronGame {
       y: ((wz + this.arenaSize / 2) / this.arenaSize) * h
     });
 
+    // Draw Arena Obstacles on Radar
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.45)';
+    this.arena.obstacles.forEach((obs) => {
+      const op = toRadar(obs.x, obs.z);
+      ctx.fillRect(op.x - 2, op.y - 2, 4, 4);
+    });
+
+    // Draw Power-Ups on Radar
+    this.arena.powerUps.forEach((pu) => {
+      const pp = toRadar(pu.x, pu.z);
+      ctx.fillStyle = '#00ff88';
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
     // Draw Player Trails
     ctx.strokeStyle = '#00f3ff';
     ctx.lineWidth = 2;
@@ -2807,31 +4322,34 @@ class TronGame {
     });
     ctx.stroke();
 
-    // Draw AI Trails
-    ctx.strokeStyle = '#ff6600';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    this.ai.getAllCollisionSegments(true).forEach((s) => {
-      const p1 = toRadar(s.x1, s.z1);
-      const p2 = toRadar(s.x2, s.z2);
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-    });
-    ctx.stroke();
+    // Draw All Active AI Trails
+    const aiHexColors = ['#ff6600', '#ffe600', '#ff1a66'];
+    this.activeAICycles.forEach((ai, idx) => {
+      ctx.strokeStyle = aiHexColors[idx % aiHexColors.length];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ai.getAllCollisionSegments(true).forEach((s) => {
+        const p1 = toRadar(s.x1, s.z1);
+        const p2 = toRadar(s.x2, s.z2);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+      });
+      ctx.stroke();
 
-    // Draw Cycle Dots
+      if (ai.alive) {
+        const ap = toRadar(ai.pos.x, ai.pos.y);
+        ctx.fillStyle = aiHexColors[idx % aiHexColors.length];
+        ctx.beginPath();
+        ctx.arc(ap.x, ap.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
     if (this.player.alive) {
       const pp = toRadar(this.player.pos.x, this.player.pos.y);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(pp.x, pp.y, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (this.ai.alive) {
-      const ap = toRadar(this.ai.pos.x, this.ai.pos.y);
-      ctx.fillStyle = '#ff9900';
-      ctx.beginPath();
-      ctx.arc(ap.x, ap.y, 3.2, 0, Math.PI * 2);
+      ctx.arc(pp.x, pp.y, 3.4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -2848,80 +4366,152 @@ class TronGame {
     const dt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
+    this.arena.update(dt);
+
     if (this.state === 'MENU') {
-      // Gentle showcase orbit while on menu
       this.cameraRig.updateDerezzOrbitCamera(new THREE.Vector3(0, 0, 0), dt * 0.45);
     } else if (this.state === 'INTRO') {
       this.introSequence.update(dt);
+    } else if (this.state === 'PAUSED') {
+      const focus = new THREE.Vector3(this.player.pos.x * 0.4, 0, this.player.pos.y * 0.4);
+      this.cameraRig.updatePauseCamera(focus, dt, this.pauseOrbitDir);
     } else if (this.state === 'PLAYING') {
-      const prevPlayerPos = this.player.pos.clone();
-      const prevAiPos = this.ai.pos.clone();
+      // Periodically spawn Power-Up Octahedrons
+      this.powerUpSpawnTimer -= dt;
+      if (this.powerUpSpawnTimer <= 0 && this.arena.powerUps.length < 4) {
+        const types = ['OVERCHARGE', 'PHASE_SHIFT', 'TRAIL_ERASER'];
+        const randType = types[Math.floor(Math.random() * types.length)];
+        const rx = (Math.random() - 0.5) * 130;
+        const rz = (Math.random() - 0.5) * 130;
+        this.arena.spawnPowerUp(randType, rx, rz);
+        this.powerUpSpawnTimer = 8.5;
+      }
 
-      // Gather segments before step for AI & slipstream
-      const preSegments = [
-        ...this.player.getAllCollisionSegments(true),
-        ...this.ai.getAllCollisionSegments(true)
-      ];
+      const allCycles = [this.player, ...this.activeAICycles];
+      const prevPositions = new Map();
+      allCycles.forEach((c) => {
+        if (c.alive) prevPositions.set(c, c.pos.clone());
+      });
 
-      // AI Decision Step
-      this.aiController.update(dt, this.ai, this.player, preSegments);
+      const allActiveSegments = [];
+      allCycles.forEach((c) => {
+        allActiveSegments.push(...c.getAllCollisionSegments(true));
+      });
+
+      // AI Decision Step for all living CPU cycles
+      this.activeAICycles.forEach((ai) => {
+        if (!ai.alive) return;
+        const opponents = allCycles.filter((c) => c !== ai && c.alive);
+        this.aiController.update(
+          dt,
+          ai,
+          opponents,
+          allActiveSegments,
+          this.arena.obstacles,
+          this.arena.powerUps
+        );
+      });
 
       // Slipstream check
-      this.player.inSlipstream = this.collision.checkSlipstream(this.player, preSegments);
-
-      // Advance both cycles
-      this.player.update(dt, this.audio);
-      this.ai.update(dt, this.audio);
-
-      // Spawn boost or slipstream sparks
-      if (this.player.isBoosting || this.player.inSlipstream) {
-        this.particles.spawnBoostSpark(
-          this.player.pos.x,
-          this.player.pos.y,
-          this.player.dir.x,
-          this.player.dir.y,
-          0x00f3ff
-        );
-      }
-      if (this.ai.isBoosting) {
-        this.particles.spawnBoostSpark(
-          this.ai.pos.x,
-          this.ai.pos.y,
-          this.ai.dir.x,
-          this.ai.dir.y,
-          0xff6600
-        );
-      }
-
-      // Check collisions against all walls & trails
-      const playerCollisionSegments = [
-        ...this.player.getAllCollisionSegments(false),
-        ...this.ai.getAllCollisionSegments(true)
-      ];
-      const aiCollisionSegments = [
-        ...this.player.getAllCollisionSegments(true),
-        ...this.ai.getAllCollisionSegments(false)
-      ];
-
-      let playerHit = this.collision.checkCycleCollision(
-        prevPlayerPos,
-        this.player.pos,
-        playerCollisionSegments
-      );
-      let aiHit = this.collision.checkCycleCollision(
-        prevAiPos,
-        this.ai.pos,
-        aiCollisionSegments
+      this.player.inSlipstream = this.collision.checkSlipstream(
+        this.player,
+        allActiveSegments,
+        this.arena.obstacles
       );
 
-      // Head-on cycle-to-cycle collision
-      if (this.player.pos.distanceTo(this.ai.pos) < 1.35) {
+      // Advance all living cycles
+      allCycles.forEach((c) => {
+        if (!c.alive) return;
+        c.update(dt, this.audio);
+        if (c.isBoosting || c.inSlipstream) {
+          this.particles.spawnBoostSpark(c.pos.x, c.pos.y, c.dir.x, c.dir.y, c.color);
+        }
+      });
+
+      // Check Power-Up Pickups
+      this.checkPowerUpPickups(allCycles);
+
+      // Check Collisions for Player & AI Cycles
+      let playerHit = false;
+      let playerBreachedWall = false;
+
+      // 1. Player Collision Check
+      const playerBoundary = this.collision.checkBoundaryHit(this.player.pos);
+      if (playerBoundary) {
+        // 1982 "Off the Grid" Escape Breach if player hits outer perimeter wall while Boosting at high speed!
+        if (this.player.isBoosting && this.player.currentSpeed > 55) {
+          playerBreachedWall = true;
+          this.arena.createWallBreach(this.player.pos.x, this.player.pos.y);
+          this.particles.spawnWallBreachExplosion(this.player.pos.x, this.player.pos.y);
+        } else {
+          playerHit = true;
+        }
+      } else if (this.collision.checkObstacleCollision(this.player.pos, this.arena.obstacles)) {
         playerHit = true;
-        aiHit = true;
+      } else if (this.player.phaseShiftTimer <= 0) {
+        const segsAgainstPlayer = [
+          ...this.player.getAllCollisionSegments(false),
+          ...this.activeAICycles.flatMap((ai) => ai.getAllCollisionSegments(true))
+        ];
+        playerHit = this.collision.checkCycleCollision(
+          prevPositions.get(this.player),
+          this.player.pos,
+          segsAgainstPlayer
+        );
       }
 
-      if (playerHit || aiHit) {
-        this.triggerDerezz(playerHit, aiHit);
+      // 2. AI Cycles Collision Check
+      this.activeAICycles.forEach((ai) => {
+        if (!ai.alive) return;
+        const prevAi = prevPositions.get(ai);
+        let aiHit =
+          this.collision.checkBoundaryHit(ai.pos) ||
+          this.collision.checkObstacleCollision(ai.pos, this.arena.obstacles);
+
+        if (!aiHit && ai.phaseShiftTimer <= 0) {
+          const segsAgainstAi = [
+            ...this.player.getAllCollisionSegments(true),
+            ...ai.getAllCollisionSegments(false),
+            ...this.activeAICycles
+              .filter((other) => other !== ai)
+              .flatMap((other) => other.getAllCollisionSegments(true))
+          ];
+          aiHit = this.collision.checkCycleCollision(prevAi, ai.pos, segsAgainstAi);
+        }
+
+        // Head-on with player
+        if (this.player.pos.distanceTo(ai.pos) < 1.35) {
+          if (this.player.phaseShiftTimer <= 0) playerHit = true;
+          aiHit = true;
+        }
+
+        if (aiHit) {
+          ai.alive = false;
+          ai.root.visible = false;
+          this.audio.playDerezz();
+          this.particles.spawnDerezzExplosion(ai.pos.x, ai.pos.y, ai.color);
+          this.crashPoint.set(ai.pos.x, 0, ai.pos.y);
+        }
+      });
+
+      const anyAiAlive = this.activeAICycles.some((ai) => ai.alive);
+
+      if (playerBreachedWall) {
+        this.triggerMatchEnd('BREACH', this.player);
+      } else if (playerHit) {
+        this.player.alive = false;
+        this.player.root.visible = false;
+        this.particles.spawnDerezzExplosion(this.player.pos.x, this.player.pos.y, 0x00f3ff);
+        this.crashPoint.set(this.player.pos.x, 0, this.player.pos.y);
+        this.triggerMatchEnd(anyAiAlive ? 'CPU_WIN' : 'DRAW');
+      } else if (!anyAiAlive) {
+        if (this.gameMode === 'GAUNTLET') {
+          this.playerScore++;
+          document.getElementById('score-player').textContent = `P1: ${this.playerScore}`;
+          this.spawnGauntletWave();
+        } else {
+          this.triggerMatchEnd('PLAYER_WIN');
+        }
       } else {
         this.cameraRig.updateGameplayCamera(this.player, dt);
         this.audio.updateEngine(
@@ -2931,7 +4521,12 @@ class TronGame {
         );
       }
 
-      this.updateHUD(preSegments);
+      this.updateHUD(allActiveSegments);
+    } else if (this.state === 'VICTORY') {
+      if (this.winnerCycle) {
+        this.winnerCycle.setVictoryPose(now * 0.001);
+        this.cameraRig.updateVictoryCamera(this.winnerCycle, dt);
+      }
     } else if (this.state === 'DEREZZ') {
       this.cameraRig.updateDerezzOrbitCamera(this.crashPoint, dt);
     }
@@ -2950,5 +4545,6 @@ class TronGame {
 window.addEventListener('DOMContentLoaded', () => {
   window.tronGame = new TronGame();
 });
+
 
 })();

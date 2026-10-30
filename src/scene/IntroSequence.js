@@ -1,15 +1,19 @@
 export class IntroSequence {
-  constructor(playerCycle, aiCycle, cameraRig, audio, uiCallbacks) {
+  constructor(playerCycle, aiCycles, cameraRig, audio, uiCallbacks) {
     this.player = playerCycle;
-    this.ai = aiCycle;
+    this.aiCycles = Array.isArray(aiCycles) ? aiCycles : [aiCycles];
     this.cameraRig = cameraRig;
     this.audio = audio;
     this.ui = uiCallbacks || {};
 
-    this.duration = 3.8; // 3.8s cinematic 4-phase choreography
+    this.duration = 3.8;
     this.elapsed = 0;
     this.active = false;
     this.stage = 0;
+  }
+
+  setAICycles(aiCycles) {
+    this.aiCycles = Array.isArray(aiCycles) ? aiCycles : [aiCycles];
   }
 
   start() {
@@ -18,7 +22,9 @@ export class IntroSequence {
     this.stage = 1;
 
     this.player.setIntroAnimationState(0);
-    this.ai.setIntroAnimationState(0);
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setIntroAnimationState(0);
+    });
 
     if (this.audio) {
       this.audio.playRodIgnite();
@@ -32,7 +38,9 @@ export class IntroSequence {
     if (!this.active) return;
     this.active = false;
     this.player.setCompletedIntroState();
-    this.ai.setCompletedIntroState();
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setCompletedIntroState();
+    });
     if (this.ui.onComplete) {
       this.ui.onComplete();
     }
@@ -45,9 +53,10 @@ export class IntroSequence {
     const progress = Math.min(1.0, this.elapsed / this.duration);
 
     this.player.setIntroAnimationState(progress);
-    this.ai.setIntroAnimationState(progress);
+    this.aiCycles.forEach((ai) => {
+      if (ai.alive) ai.setIntroAnimationState(progress);
+    });
 
-    // Stage transitions & sound effects
     if (progress >= 0.25 && this.stage === 1) {
       this.stage = 2;
       if (this.ui.onStageChange) {
@@ -67,13 +76,14 @@ export class IntroSequence {
       }
     }
 
-    // Update cinematic intro camera
     this.cameraRig.updateIntroCamera(this.player, progress);
 
     if (progress >= 1.0) {
       this.active = false;
       this.player.setCompletedIntroState();
-      this.ai.setCompletedIntroState();
+      this.aiCycles.forEach((ai) => {
+        if (ai.alive) ai.setCompletedIntroState();
+      });
       if (this.ui.onComplete) {
         this.ui.onComplete();
       }

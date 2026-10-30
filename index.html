@@ -114,11 +114,12 @@
 
     <!-- Center Box: Live Camera Perspective Switcher & Sound Toggle -->
     <div class="hud-box">
-      <div class="hud-title">CAMERA [1 / 2 / 3 / C] &amp; AUDIO [M]</div>
+      <div class="hud-title">CAMERA [1 / 2 / 3 / C] &bull; PAUSE [P] &bull; AUDIO [M]</div>
       <div class="cam-switcher">
         <button class="cam-btn active" data-hud-cam="BIRDS_EYE">[1] BIRD'S-EYE</button>
         <button class="cam-btn" data-hud-cam="OVER_SHOULDER">[2] OVER-SHOULDER</button>
         <button class="cam-btn" data-hud-cam="FIRST_PERSON">[3] FIRST-PERSON</button>
+        <button id="hud-pause-btn" class="cam-btn" title="Pause & Free-Orbit Inspection [P]">PAUSE [P]</button>
         <button id="hud-sound-btn" class="cam-btn active" title="Toggle Sound [M]">SOUND: ON [M]</button>
       </div>
     </div>
@@ -148,10 +149,28 @@
   <div id="start-modal" class="modal-backdrop">
     <div class="modal-card">
       <div class="game-logo">LIGHT CYCLE</div>
-      <div class="game-sub">ENTER THE GRID // PLAYER (CYAN) VS. CPU (ORANGE)</div>
+      <div class="game-sub">ENTER THE GRID // SINGLE-PLAYER LEGO EDITION</div>
 
       <div class="option-section">
-        <span class="option-label">1. SELECT STARTING CAMERA PERSPECTIVE (SWITCH ANYTIME WITH 1/2/3 OR C)</span>
+        <span class="option-label">1. SELECT SINGLE-PLAYER GAME MODE</span>
+        <div class="option-grid">
+          <div class="opt-card selected" data-mode-select="DUEL">
+            <div class="opt-title">1v1 Grid Duel</div>
+            <div class="opt-desc">Classic Cyan vs. Orange</div>
+          </div>
+          <div class="opt-card" data-mode-select="BATTLE">
+            <div class="opt-title">4-Bike Grid Battle</div>
+            <div class="opt-desc">You vs. 3 CPU Rivals</div>
+          </div>
+          <div class="opt-card" data-mode-select="GAUNTLET">
+            <div class="opt-title">Endless Gauntlet</div>
+            <div class="opt-desc">Escalating Survival Waves</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="option-section">
+        <span class="option-label">2. SELECT STARTING CAMERA PERSPECTIVE (SWITCH ANYTIME WITH 1/2/3 OR C)</span>
         <div class="option-grid">
           <div class="opt-card selected" data-cam-select="BIRDS_EYE">
             <div class="opt-title">[1] Bird's-Eye</div>
@@ -169,7 +188,7 @@
       </div>
 
       <div class="option-section">
-        <span class="option-label">2. SELECT COMPUTER AI DIFFICULTY</span>
+        <span class="option-label">3. SELECT COMPUTER AI DIFFICULTY</span>
         <div class="option-grid">
           <div class="opt-card selected" data-diff-select="NOVICE">
             <div class="opt-title">Novice</div>
@@ -192,7 +211,7 @@
       </label>
 
       <label class="intro-toggle-row">
-        <span><strong>Synthesizer Sound Effects</strong> (Engine hum, rod ignition, turn chirp &amp; derezz)</span>
+        <span><strong>Synthesizer Sound &amp; 1982 Music</strong> (Wendy Carlos arpeggio, engine hum &amp; FX)</span>
         <input type="checkbox" id="sound-checkbox" checked />
       </label>
 
@@ -207,12 +226,12 @@
       <div id="gameover-title" class="game-logo">CPU DEREZZED</div>
       <div id="gameover-sub" class="game-sub">USER DOMINATES THE GRID</div>
       <button id="rematch-btn" class="primary-btn" style="margin-bottom: 10px;">NEXT ROUND [SPACE]</button>
-      <button id="menu-btn" class="cam-btn" style="width: 100%; padding: 10px;">CONFIGURE CAMERA / DIFFICULTY</button>
+      <button id="menu-btn" class="cam-btn" style="width: 100%; padding: 10px;">CONFIGURE MODE / CAMERA / DIFFICULTY</button>
     </div>
   </div>
 
   <script src="three.min.js"></script>
   <script src="three.postprocessing.js"></script>
-  <script src="game.bundle.js?v=10"></script>
+  <script src="game.bundle.js?v=12"></script>
 </body>
 </html>

@@ -5,15 +5,19 @@ export class LightCycle {
     this.scene = scene;
     this.name = config.name || 'PLAYER';
     this.color = config.color || 0x00f3ff;
-    this.secondaryColor = config.isPlayer ? 0x99ffff : 0xffcc66;
+    this.secondaryColor = config.secondaryColor || (config.isPlayer ? 0x99ffff : 0xffcc66);
     this.isPlayer = !!config.isPlayer;
 
-    this.startX = config.startX || -40;
-    this.startZ = config.startZ || 0;
+    this.startX = config.startX !== undefined ? config.startX : -40;
+    this.startZ = config.startZ !== undefined ? config.startZ : 0;
     this.startDir = config.startDir ? config.startDir.clone() : new THREE.Vector2(1, 0);
 
     this.baseSpeed = 42;
     this.boostSpeed = 68;
+    this.brakeSpeed = 24;
+    this.isBraking = false;
+    this.phaseShiftTimer = 0;
+    this.inVictory = false;
     this.wallHeight = 2.6;
 
     this.root = new THREE.Group();
@@ -99,8 +103,6 @@ export class LightCycle {
    * - Hinged LEGO arms with iconic yellow C-shaped claw hands that snap onto the Handheld Control Rod!
    */
   buildLegoMinifigRider() {
-    const hexColor = this.isPlayer ? '#00f3ff' : '#ff6600';
-
     // Glossy LEGO ABS Plastic materials
     const legoSuitMat = new THREE.MeshPhongMaterial({
       color: 0x162234,
@@ -517,6 +519,11 @@ export class LightCycle {
       opacity: 0.0
     });
 
+    // Dynamic PointLight on Every Cycle
+    this.cycleLight = new THREE.PointLight(this.color, 1.6, 26);
+    this.cycleLight.position.set(0, 1.6, 0);
+    this.root.add(this.cycleLight);
+
     // 1. MASSIVE 1982 ENCLOSED FRONT & REAR WHEELS
     this.frontWheelGroup = this.createClassic1982WheelAssembly(0.78, 0.56);
     this.frontWheelGroup.position.set(0, 0.78, 1.48);
@@ -620,6 +627,47 @@ export class LightCycle {
 
     this.bikeGroup.add(this.chassisGroup);
 
+    // 5. UNDER-GLOW MIRROR REFLECTION ON THE GLOSSY GRID FLOOR
+    this.floorReflectionGroup = new THREE.Group();
+    this.floorReflectionGroup.position.y = -0.55;
+    this.floorReflectionGroup.scale.y = -0.65;
+
+    this.reflectionMat = new THREE.MeshBasicMaterial({
+      color: this.color,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    });
+    this.reflectionSecondaryMat = new THREE.MeshBasicMaterial({
+      color: this.secondaryColor,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    });
+
+    const reflFrontShroud = new THREE.Mesh(frontShroudGeo, this.reflectionMat);
+    reflFrontShroud.position.set(0, 0.78, 1.48);
+    this.floorReflectionGroup.add(reflFrontShroud);
+
+    const reflRearShroud = new THREE.Mesh(rearShroudGeo, this.reflectionMat);
+    reflRearShroud.position.set(0, 0.84, -1.48);
+    this.floorReflectionGroup.add(reflRearShroud);
+
+    const reflDome = new THREE.Mesh(domeGeo, this.reflectionMat);
+    reflDome.position.set(0, 0.90, -0.05);
+    this.floorReflectionGroup.add(reflDome);
+
+    [-0.49, 0.49].forEach((xSide) => {
+      const reflStripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.08, 3.35),
+        this.reflectionSecondaryMat
+      );
+      reflStripe.position.set(xSide, 0.78, 0.05);
+      this.floorReflectionGroup.add(reflStripe);
+    });
+
+    this.bikeGroup.add(this.floorReflectionGroup);
+
     // Touchdown Shockwave Ring on the Floor
     const shockGeo = new THREE.RingGeometry(0.4, 0.75, 32);
     shockGeo.rotateX(-Math.PI / 2);
@@ -672,28 +720,46 @@ export class LightCycle {
     return wheelGroup;
   }
 
+  clearTrails() {
+    while (this.trailGroup.children.length > 0) {
+      const child = this.trailGroup.children.pop();
+      if (child.geometry) child.geometry.dispose();
+      if (child.children) {
+        child.children.forEach((c) => {
+          if (c.geometry) c.geometry.dispose();
+          if (c.material) c.material.dispose();
+        });
+      }
+    }
+    this.segments = [];
+    if (this.pos) {
+      if (this.currentSegmentStart) {
+        this.currentSegmentStart.copy(this.pos);
+      } else {
+        this.currentSegmentStart = this.pos.clone();
+      }
+    }
+    this.activeWallMesh = this.createWallMesh();
+    this.activeWallMesh.visible = !this.inIntro;
+    this.trailGroup.add(this.activeWallMesh);
+  }
+
   reset() {
     this.pos = new THREE.Vector2(this.startX, this.startZ);
     this.dir = this.startDir.clone();
     this.turnQueue = [];
     this.alive = true;
     this.isBoosting = false;
+    this.isBraking = false;
+    this.phaseShiftTimer = 0;
+    this.inVictory = false;
     this.boostEnergy = 100;
     this.inSlipstream = false;
     this.leanAngle = 0;
     this.currentSpeed = this.baseSpeed;
 
-    while (this.trailGroup.children.length > 0) {
-      const child = this.trailGroup.children.pop();
-      if (child.geometry) child.geometry.dispose();
-    }
-
-    this.segments = [];
-    this.currentSegmentStart = this.pos.clone();
-    this.activeWallMesh = this.createWallMesh();
-    this.trailGroup.add(this.activeWallMesh);
-
     this.inIntro = true;
+    this.clearTrails();
     this.setIntroAnimationState(0);
     this.syncTransform();
     this.updateActiveWallMesh();
@@ -708,6 +774,7 @@ export class LightCycle {
    */
   setIntroAnimationState(progress) {
     this.inIntro = true;
+    this.inVictory = false;
     this.root.visible = true;
     this.activeWallMesh.visible = false;
     this.riderGroup.visible = true;
@@ -968,6 +1035,7 @@ export class LightCycle {
 
   setCompletedIntroState() {
     this.inIntro = false;
+    this.inVictory = false;
     this.root.visible = true;
     this.bikeGroup.visible = true;
     this.frontWheelGroup.visible = true;
@@ -998,6 +1066,50 @@ export class LightCycle {
     if (this.activeWallMesh) {
       this.activeWallMesh.visible = true;
     }
+  }
+
+  /**
+   * LEGO Minifigure Victory Celebration Pose:
+   * Pops the canopy open, stands the LEGO Minifigure upright on the saddle,
+   * and pumps both LEGO C-grip arms & the glowing Control Rod up and down overhead in celebration!
+   */
+  setVictoryPose(time = 0) {
+    this.inVictory = true;
+    this.inIntro = false;
+    this.root.visible = true;
+    this.bikeGroup.visible = true;
+    this.riderGroup.visible = true;
+
+    this.canopyGroup.visible = true;
+    this.canopyGroup.position.y = 0.55;
+    this.canopyGroup.rotation.x = -0.45;
+
+    this.riderPoseGroup.position.set(0, 0.35, 0);
+    this.pelvisGroup.position.set(0, 0.62, 0);
+    this.riderTorso.rotation.x = 0;
+    this.leftLeg.hipJoint.rotation.x = 0;
+    this.rightLeg.hipJoint.rotation.x = 0;
+
+    const pump = Math.sin(time * 9.0);
+    const pump01 = (pump + 1) * 0.5;
+
+    this.helmetGroup.rotation.x = -0.15 - pump01 * 0.1;
+    this.helmetGroup.rotation.y = Math.sin(time * 3.5) * 0.22;
+
+    const armPitch = -2.65 - pump * 0.38;
+    this.leftArm.shoulderJoint.rotation.set(armPitch, 0.12, -0.15);
+    this.rightArm.shoulderJoint.rotation.set(armPitch, -0.12, 0.15);
+    this.leftArm.elbowJoint.rotation.set(-0.2, 0, 0);
+    this.rightArm.elbowJoint.rotation.set(-0.2, 0, 0);
+
+    this.leftBatonHalf.position.x = -0.16;
+    this.rightBatonHalf.position.x = 0.16;
+    this.batonPlasmaBridge.scale.x = 0.32;
+    this.batonGroup.position.set(0, 0.88 + pump * 0.15, 0.14);
+
+    this.batonHalo.material.opacity = 0.45 + pump01 * 0.45;
+    const haloScale = 1.2 + pump01 * 0.9;
+    this.batonHalo.scale.set(haloScale, haloScale, 1);
   }
 
   setFirstPersonVisibility(isFirstPerson) {
@@ -1082,10 +1194,26 @@ export class LightCycle {
     if (this.isBoosting && this.boostEnergy > 0) {
       this.currentSpeed = this.boostSpeed;
       this.boostEnergy = Math.max(0, this.boostEnergy - dt * 36);
+    } else if (this.isBraking) {
+      this.currentSpeed = this.brakeSpeed;
+      const regenRate = this.inSlipstream ? 28 : 8;
+      this.boostEnergy = Math.min(100, this.boostEnergy + dt * regenRate);
     } else {
       this.currentSpeed = this.baseSpeed;
       const regenRate = this.inSlipstream ? 28 : 8;
       this.boostEnergy = Math.min(100, this.boostEnergy + dt * regenRate);
+    }
+
+    // Phase-Shift Invulnerability State
+    if (this.phaseShiftTimer > 0) {
+      this.phaseShiftTimer = Math.max(0, this.phaseShiftTimer - dt);
+      this.hullMat.opacity = 0.35 + 0.25 * Math.sin(performance.now() * 0.025);
+      this.wireframeShell.visible = true;
+      this.wireframeMat.opacity = 0.85;
+    } else if (!this.inIntro && !this.inVictory) {
+      this.hullMat.opacity = 1.0;
+      this.wireframeShell.visible = false;
+      this.wireframeMat.opacity = 0;
     }
 
     const step = this.currentSpeed * dt;
