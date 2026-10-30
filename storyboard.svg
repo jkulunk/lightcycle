@@ -1,0 +1,334 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" width="100%" height="100%" style="background:#050811; font-family: 'Courier New', monospace;">
+  <defs>
+    <!-- Neon Glow Filters -->
+    <filter id="cyanGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="orangeGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <linearGradient id="gridGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#071124" />
+      <stop offset="100%" stop-color="#02050a" />
+    </linearGradient>
+    <linearGradient id="cyanWall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00f3ff" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#005577" stop-opacity="0.35" />
+    </linearGradient>
+    <linearGradient id="orangeWall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff6600" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#661a00" stop-opacity="0.35" />
+    </linearGradient>
+  </defs>
+
+  <!-- Main Header -->
+  <rect x="0" y="0" width="1400" height="70" fill="#070d19" stroke="#00f3ff" stroke-width="1" opacity="0.9"/>
+  <text x="35" y="43" fill="#00f3ff" font-size="26" font-weight="bold" letter-spacing="4" filter="url(#cyanGlow)">TRON: LIGHT CYCLE — VISUAL STORYBOARD &amp; CAMERA PERSPECTIVES</text>
+  <text x="1365" y="43" fill="#ff6600" font-size="14" text-anchor="end" letter-spacing="2">PLAYER (CYAN) VS CPU (ORANGE)</text>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 1: BATON / ROD INITIALIZATION INTRO ANIMATION (TOP LEFT)    -->
+  <!-- ================================================================= -->
+  <g transform="translate(30, 90)">
+    <rect width="420" height="390" rx="6" fill="url(#gridGrad)" stroke="#00f3ff" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#0a192f" />
+    <text x="12" y="21" fill="#00f3ff" font-size="13" font-weight="bold">PANEL 01 // INTRO: HANDHELD ROD CYCLE MATERIALIZATION</text>
+
+    <!-- Perspective Grid Lines -->
+    <g stroke="#0d3b66" stroke-width="1" opacity="0.65">
+      <line x1="0" y1="220" x2="420" y2="220" />
+      <line x1="0" y1="255" x2="420" y2="255" />
+      <line x1="0" y1="295" x2="420" y2="295" />
+      <line x1="0" y1="340" x2="420" y2="340" />
+      <line x1="210" y1="190" x2="20" y2="390" />
+      <line x1="210" y1="190" x2="110" y2="390" />
+      <line x1="210" y1="190" x2="210" y2="390" />
+      <line x1="210" y1="190" x2="310" y2="390" />
+      <line x1="210" y1="190" x2="400" y2="390" />
+    </g>
+
+    <!-- Stage Callout Sub-header -->
+    <text x="210" y="54" fill="#00f3ff" font-size="11" font-weight="bold" text-anchor="middle" letter-spacing="1.5">3-STAGE PROCEDURAL INTRO (0.0s &rarr; 2.8s)</text>
+
+    <!-- STEP A (Left): Rider Igniting Handheld Baton -->
+    <g transform="translate(75, 130)">
+      <text x="0" y="-48" fill="#88ccff" font-size="9" font-weight="bold" text-anchor="middle">1. IGNITE ROD</text>
+      <!-- Helmet & Torso -->
+      <circle cx="0" cy="-24" r="9" fill="#061a33" stroke="#00f3ff" stroke-width="2" />
+      <path d="M -12,-12 L 12,-12 L 9,22 L -9,22 Z" fill="#061a33" stroke="#00f3ff" stroke-width="1.5" />
+      <!-- Arms holding Baton -->
+      <line x1="-11" y1="-8" x2="-14" y2="6" stroke="#00f3ff" stroke-width="2.5" />
+      <line x1="11" y1="-8" x2="14" y2="6" stroke="#00f3ff" stroke-width="2.5" />
+      <!-- Glowing Handheld Baton / Rod -->
+      <rect x="-24" y="3" width="48" height="7" rx="3.5" fill="#ffffff" stroke="#00f3ff" stroke-width="2.5" filter="url(#cyanGlow)" />
+      <circle cx="0" cy="6.5" r="14" fill="none" stroke="#00f3ff" stroke-width="1" stroke-dasharray="3,2" />
+    </g>
+
+    <!-- Arrow 1 -> 2 -->
+    <path d="M 115,130 L 142,130" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="3,2" />
+
+    <!-- STEP B (Center-Right): Rider Leaping Forward & Wireframe Cycle Forming Around Rod -->
+    <g transform="translate(245, 145)">
+      <text x="0" y="-63" fill="#00f3ff" font-size="9" font-weight="bold" text-anchor="middle">2. LEAP &amp; EXTRUDE WIREFRAME</text>
+      <!-- Forming Front & Rear Light Wheels (Dashed Laser Rings) -->
+      <circle cx="52" cy="18" r="22" fill="none" stroke="#00f3ff" stroke-width="2.5" stroke-dasharray="8,4" filter="url(#cyanGlow)" />
+      <circle cx="-52" cy="18" r="22" fill="none" stroke="#00f3ff" stroke-width="2.5" stroke-dasharray="8,4" filter="url(#cyanGlow)" />
+      <!-- Glowing Baton Extended Forward in Rider's Hands -->
+      <rect x="28" y="-2" width="32" height="6" rx="3" fill="#ffffff" stroke="#00f3ff" stroke-width="2" filter="url(#cyanGlow)" />
+      <!-- Projection Beams from Baton to Wheels & Canopy -->
+      <line x1="44" y1="1" x2="52" y2="18" stroke="#00f3ff" stroke-width="1.5" opacity="0.85" />
+      <line x1="30" y1="1" x2="-52" y2="18" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.85" />
+      <!-- Rider Body Horizontally Leaping -->
+      <circle cx="18" cy="-10" r="7" fill="#061a33" stroke="#00f3ff" stroke-width="2" />
+      <path d="M -22,2 Q 0,-12 14,-6 L 28,0" fill="none" stroke="#ffffff" stroke-width="3" filter="url(#cyanGlow)" />
+      <!-- Wireframe Canopy Arch Materializing Over Back -->
+      <path d="M -58,14 Q -5,-32 58,14" fill="none" stroke="#00f3ff" stroke-width="2" stroke-dasharray="6,3" filter="url(#cyanGlow)" />
+      <path d="M -42,18 L 42,18" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="4,2" />
+    </g>
+
+    <!-- STEP C (Bottom Floor): Both Player (Cyan) & CPU (Orange) Cycles Slamming onto Grid -->
+    <ellipse cx="135" cy="302" rx="46" ry="12" fill="none" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="5,3" />
+    <circle cx="115" cy="292" r="13" fill="#041529" stroke="#00f3ff" stroke-width="3" filter="url(#cyanGlow)" />
+    <rect x="115" y="283" width="38" height="15" rx="6" fill="#00f3ff" opacity="0.9" />
+    <circle cx="153" cy="292" r="13" fill="#041529" stroke="#00f3ff" stroke-width="3" filter="url(#cyanGlow)" />
+
+    <ellipse cx="290" cy="302" rx="46" ry="12" fill="none" stroke="#ff6600" stroke-width="1.5" stroke-dasharray="5,3" />
+    <circle cx="310" cy="292" r="13" fill="#240d00" stroke="#ff6600" stroke-width="3" filter="url(#orangeGlow)" />
+    <rect x="272" y="283" width="38" height="15" rx="6" fill="#ff6600" opacity="0.9" />
+    <circle cx="272" cy="292" r="13" fill="#240d00" stroke="#ff6600" stroke-width="3" filter="url(#orangeGlow)" />
+
+    <!-- Camera Select Bar Overlay at Bottom of Panel 1 -->
+    <rect x="25" y="318" width="370" height="28" rx="4" fill="#071a30" stroke="#00f3ff" stroke-width="1" />
+    <text x="210" y="336" fill="#00f3ff" font-size="10" font-weight="bold" text-anchor="middle">3. TOUCHDOWN &amp; CAM SNAP: [1] BIRD'S-EYE | [2] CHASE | [3] 1ST-PERSON</text>
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">Riders ignite handheld rods, leap forward &amp; rez cycles mid-air</text>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 2: VIEW 1 — BIRD'S-EYE TACTICAL VIEW (TOP CENTER)           -->
+  <!-- ================================================================= -->
+  <g transform="translate(490, 90)">
+    <rect width="420" height="390" rx="6" fill="#040b16" stroke="#00f3ff" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#0a192f" />
+    <text x="12" y="21" fill="#00f3ff" font-size="13" font-weight="bold">PANEL 02 // VIEW 1: BIRD'S-EYE (ORTHOGRAPHIC TOP-DOWN)</text>
+
+    <!-- Top-down Arena Box -->
+    <rect x="45" y="55" width="330" height="285" fill="#030812" stroke="#00f3ff" stroke-width="3" filter="url(#cyanGlow)" />
+
+    <!-- Subtle 2D Grid -->
+    <g stroke="#0b2948" stroke-width="1">
+      <line x1="100" y1="55" x2="100" y2="340" />
+      <line x1="155" y1="55" x2="155" y2="340" />
+      <line x1="210" y1="55" x2="210" y2="340" />
+      <line x1="265" y1="55" x2="265" y2="340" />
+      <line x1="320" y1="55" x2="320" y2="340" />
+      <line x1="45" y1="110" x2="375" y2="110" />
+      <line x1="45" y1="165" x2="375" y2="165" />
+      <line x1="45" y1="220" x2="375" y2="220" />
+      <line x1="45" y1="275" x2="375" y2="275" />
+    </g>
+
+    <!-- Player Cyan Trail (Orthogonal 90 deg path) -->
+    <polyline points="80,310 80,190 190,190 190,125 250,125" fill="none" stroke="#00f3ff" stroke-width="4" filter="url(#cyanGlow)" />
+    <!-- Player Cycle Dot/Arrow -->
+    <polygon points="258,125 244,119 244,131" fill="#ffffff" stroke="#00f3ff" stroke-width="2" />
+
+    <!-- AI Orange Trail -->
+    <polyline points="340,85 340,245 230,245 230,155 290,155 290,100" fill="none" stroke="#ff6600" stroke-width="4" filter="url(#orangeGlow)" />
+    <!-- AI Cycle Dot/Arrow -->
+    <polygon points="290,92 284,106 296,106" fill="#ffffff" stroke="#ff6600" stroke-width="2" />
+
+    <!-- HUD Top Bar inside View -->
+    <text x="55" y="74" fill="#00f3ff" font-size="11" font-weight="bold">P1 BOOST: [||||||..]</text>
+    <text x="365" y="74" fill="#ff6600" font-size="11" font-weight="bold" text-anchor="end">CPU: AGGRESSIVE</text>
+
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">Full arena visibility; ideal for Voronoi territory control</text>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 3: VIEW 2 — OVER-THE-SHOULDER 3D CHASE CAM (TOP RIGHT)      -->
+  <!-- ================================================================= -->
+  <g transform="translate(950, 90)">
+    <rect width="420" height="390" rx="6" fill="url(#gridGrad)" stroke="#00f3ff" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#0a192f" />
+    <text x="12" y="21" fill="#00f3ff" font-size="13" font-weight="bold">PANEL 03 // VIEW 2: OVER-THE-SHOULDER (3RD-PERSON)</text>
+
+    <!-- Horizon Line -->
+    <line x1="0" y1="150" x2="420" y2="150" stroke="#00f3ff" stroke-width="1" opacity="0.6" />
+
+    <!-- 3D Perspective Floor Grid -->
+    <g stroke="#0d3b66" stroke-width="1">
+      <line x1="210" y1="150" x2="-80" y2="345" />
+      <line x1="210" y1="150" x2="20" y2="345" />
+      <line x1="210" y1="150" x2="115" y2="345" />
+      <line x1="210" y1="150" x2="210" y2="345" />
+      <line x1="210" y1="150" x2="305" y2="345" />
+      <line x1="210" y1="150" x2="400" y2="345" />
+      <line x1="210" y1="150" x2="500" y2="345" />
+      <line x1="0" y1="175" x2="420" y2="175" />
+      <line x1="0" y1="205" x2="420" y2="205" />
+      <line x1="0" y1="245" x2="420" y2="245" />
+      <line x1="0" y1="295" x2="420" y2="295" />
+      <line x1="0" y1="345" x2="420" y2="345" />
+    </g>
+
+    <!-- Enemy Orange Light Ribbon Cutting Across Ahead -->
+    <polygon points="60,185 330,185 350,230 45,230" fill="url(#orangeWall)" stroke="#ff6600" stroke-width="2" filter="url(#orangeGlow)" />
+    <!-- Enemy Cycle on Right -->
+    <rect x="330" y="205" width="38" height="22" rx="6" fill="#ff6600" stroke="#ffffff" stroke-width="1.5" filter="url(#orangeGlow)" />
+
+    <!-- Player's Own Cyan Trail Behind Cycle -->
+    <polygon points="203,285 217,285 235,345 185,345" fill="url(#cyanWall)" stroke="#00f3ff" stroke-width="2" />
+
+    <!-- Player Light Cycle (3D Rear/Chase View) -->
+    <g transform="translate(210, 275)">
+      <!-- Rear Tire Glow -->
+      <rect x="-16" y="-22" width="32" height="38" rx="10" fill="#06152d" stroke="#00f3ff" stroke-width="3" filter="url(#cyanGlow)" />
+      <!-- Canopy Spine -->
+      <path d="M -10,-20 L 0,-36 L 10,-20 Z" fill="#00f3ff" opacity="0.85" />
+      <rect x="-5" y="-12" width="10" height="26" rx="4" fill="#ffffff" filter="url(#cyanGlow)" />
+    </g>
+
+    <!-- Turn Prompt Indicator -->
+    <text x="115" y="265" fill="#00f3ff" font-size="12" font-weight="bold">&lt;&lt; [A] EVADE LEFT</text>
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">Spring-damped chase cam (`FOV 65°`) with towering 3D light walls</text>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 4: VIEW 3 — FIRST-PERSON COCKPIT VIEW (BOTTOM LEFT)         -->
+  <!-- ================================================================= -->
+  <g transform="translate(30, 510)">
+    <rect width="420" height="390" rx="6" fill="url(#gridGrad)" stroke="#00f3ff" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#0a192f" />
+    <text x="12" y="21" fill="#00f3ff" font-size="13" font-weight="bold">PANEL 04 // VIEW 3: FIRST-PERSON (COCKPIT CANOPY CAM)</text>
+
+    <!-- Horizon -->
+    <line x1="0" y1="165" x2="420" y2="165" stroke="#00f3ff" stroke-width="1" />
+
+    <!-- High-Speed Perspective Grid -->
+    <g stroke="#0d3b66" stroke-width="1">
+      <line x1="210" y1="165" x2="-100" y2="345" />
+      <line x1="210" y1="165" x2="40" y2="345" />
+      <line x1="210" y1="165" x2="140" y2="345" />
+      <line x1="210" y1="165" x2="280" y2="345" />
+      <line x1="210" y1="165" x2="380" y2="345" />
+      <line x1="210" y1="165" x2="520" y2="345" />
+      <line x1="0" y1="200" x2="420" y2="200" />
+      <line x1="0" y1="250" x2="420" y2="250" />
+      <line x1="0" y1="310" x2="420" y2="310" />
+    </g>
+
+    <!-- Towering Looming Orange Wall Right in Front of Canopy -->
+    <polygon points="40,95 310,115 310,275 40,310" fill="url(#orangeWall)" stroke="#ff6600" stroke-width="2.5" filter="url(#orangeGlow)" />
+
+    <!-- Threat Proximity Warning in Cockpit HUD -->
+    <rect x="135" y="135" width="150" height="28" rx="3" fill="#2a0800" stroke="#ff3300" stroke-width="1.5" />
+    <text x="210" y="153" fill="#ff4400" font-size="12" font-weight="bold" text-anchor="middle">! WALL PROXIMITY 12m !</text>
+
+    <!-- Translucent Cockpit Frame Struts & Front Wheel Arch -->
+    <path d="M 0,345 L 95,215 L 155,190 L 265,190 L 325,215 L 420,345" fill="none" stroke="#00f3ff" stroke-width="3" opacity="0.85" filter="url(#cyanGlow)" />
+    <!-- Front Tire Fairing Nose -->
+    <path d="M 175,345 Q 210,245 245,345 Z" fill="#061a33" stroke="#00f3ff" stroke-width="2" />
+    <line x1="210" y1="265" x2="210" y2="345" stroke="#ffffff" stroke-width="2" filter="url(#cyanGlow)" />
+
+    <!-- Radar Minimap (Essential for First-Person) -->
+    <rect x="315" y="48" width="90" height="90" rx="4" fill="#030a14" stroke="#00f3ff" stroke-width="1.5" opacity="0.9" />
+    <text x="360" y="61" fill="#00f3ff" font-size="8" text-anchor="middle">RADAR HUD</text>
+    <polyline points="335,125 335,85 365,85" fill="none" stroke="#00f3ff" stroke-width="2" />
+    <polyline points="385,70 385,110 350,110" fill="none" stroke="#ff6600" stroke-width="2" />
+
+    <!-- Speedometer HUD -->
+    <text x="18" y="332" fill="#00f3ff" font-size="13" font-weight="bold">SPD: 142 KM/H</text>
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">Cockpit struts + Radar Minimap + Proximity warning chevrons</text>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 5: AI TACTICAL CUTOFF & VORONOI BOX-IN (BOTTOM CENTER)      -->
+  <!-- ================================================================= -->
+  <g transform="translate(490, 510)">
+    <rect width="420" height="390" rx="6" fill="#040b16" stroke="#ff6600" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#241006" />
+    <text x="12" y="21" fill="#ff6600" font-size="13" font-weight="bold">PANEL 05 // AI LOGIC: RAYCAST + BFS FLOOD-FILL CUTOFF</text>
+
+    <!-- Diagram of AI Decision Tree on Grid -->
+    <rect x="45" y="55" width="330" height="285" fill="#030812" stroke="#1e3a5f" stroke-width="2" />
+
+    <!-- Shaded Voronoi Territory Regions -->
+    <rect x="55" y="65" width="165" height="265" fill="#00f3ff" opacity="0.08" />
+    <rect x="220" y="65" width="145" height="265" fill="#ff6600" opacity="0.08" />
+    <line x1="220" y1="55" x2="220" y2="340" stroke="#ffffff" stroke-width="1" stroke-dasharray="4,4" opacity="0.5" />
+
+    <!-- Trails -->
+    <polyline points="90,300 90,150 185,150" fill="none" stroke="#00f3ff" stroke-width="4" filter="url(#cyanGlow)" />
+    <polygon points="195,150 181,144 181,156" fill="#00f3ff" />
+
+    <polyline points="320,300 320,190 250,190 250,120" fill="none" stroke="#ff6600" stroke-width="4" filter="url(#orangeGlow)" />
+    <polygon points="250,110 244,124 256,124" fill="#ff6600" />
+
+    <!-- AI Candidate Rays -->
+    <!-- Left Ray (Cutoff move) -->
+    <line x1="250" y1="115" x2="140" y2="115" stroke="#00ff88" stroke-width="2" stroke-dasharray="5,3" />
+    <text x="145" y="105" fill="#00ff88" font-size="10" font-weight="bold">BEST: CUTOFF (BFS=148 cells)</text>
+
+    <!-- Forward Ray -->
+    <line x1="250" y1="115" x2="250" y2="65" stroke="#ffcc00" stroke-width="1.5" stroke-dasharray="3,3" />
+    <text x="258" y="80" fill="#ffcc00" font-size="9">FWD (BFS=62)</text>
+
+    <!-- Right Ray (Trap) -->
+    <line x1="250" y1="115" x2="315" y2="115" stroke="#ff3333" stroke-width="1.5" stroke-dasharray="3,3" />
+    <text x="265" y="132" fill="#ff3333" font-size="9">TRAP (BFS=14)</text>
+
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">AI scores 3 candidate turns via ray lookahead + BFS open-cell count</text>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 6: DEREZZ EXPLOSION & MATCH RESOLUTION (BOTTOM RIGHT)       -->
+  <!-- ================================================================= -->
+  <g transform="translate(950, 510)">
+    <rect width="420" height="390" rx="6" fill="url(#gridGrad)" stroke="#00f3ff" stroke-width="2" />
+    <rect width="420" height="32" rx="4" fill="#0a192f" />
+    <text x="12" y="21" fill="#00f3ff" font-size="13" font-weight="bold">PANEL 06 // DEREZZ SEQUENCE &amp; VICTORY OVERLAY</text>
+
+    <!-- Perspective Grid -->
+    <g stroke="#0d3b66" stroke-width="1">
+      <line x1="210" y1="145" x2="0" y2="345" />
+      <line x1="210" y1="145" x2="140" y2="345" />
+      <line x1="210" y1="145" x2="280" y2="345" />
+      <line x1="210" y1="145" x2="420" y2="345" />
+      <line x1="0" y1="210" x2="420" y2="210" />
+      <line x1="0" y1="280" x2="420" y2="280" />
+    </g>
+
+    <!-- Winning Cyan Wall -->
+    <polygon points="75,180 345,210 345,270 75,240" fill="url(#cyanWall)" stroke="#00f3ff" stroke-width="2.5" filter="url(#cyanGlow)" />
+
+    <!-- Voxel Derezz Explosion (Orange CPU crashing into Cyan Wall) -->
+    <g transform="translate(225, 235)" filter="url(#orangeGlow)">
+      <circle cx="0" cy="0" r="28" fill="#ffaa00" opacity="0.35" />
+      <!-- Shattering Voxel Cubes -->
+      <rect x="-35" y="-40" width="10" height="10" fill="#ff6600" transform="rotate(15)" />
+      <rect x="20" y="-35" width="12" height="12" fill="#ffaa00" transform="rotate(40)" />
+      <rect x="-45" y="10" width="9" height="9" fill="#ff3300" />
+      <rect x="30" y="15" width="11" height="11" fill="#ff6600" transform="rotate(25)" />
+      <rect x="-15" y="-55" width="8" height="8" fill="#ffffff" />
+      <rect x="12" y="-50" width="7" height="7" fill="#ff8800" />
+      <rect x="-8" y="-8" width="16" height="16" fill="#ffffff" />
+      <!-- Shockwave Ring -->
+      <ellipse cx="0" cy="10" rx="58" ry="22" fill="none" stroke="#ff8800" stroke-width="2" stroke-dasharray="6,4" />
+    </g>
+
+    <!-- Victory Banner Overlay -->
+    <rect x="70" y="70" width="280" height="68" rx="6" fill="#041529" stroke="#00f3ff" stroke-width="2" filter="url(#cyanGlow)" />
+    <text x="210" y="100" fill="#00f3ff" font-size="20" font-weight="bold" text-anchor="middle" letter-spacing="3">CPU DEREZZED</text>
+    <text x="210" y="122" fill="#ffffff" font-size="11" text-anchor="middle">USER WINS ROUND // [SPACE] NEXT MATCH</text>
+
+    <text x="210" y="368" fill="#88aacc" font-size="11" text-anchor="middle">Particle voxel burst + slow-mo camera orbit + trail dissolve</text>
+  </g>
+</svg>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TRON: LIGHT CYCLE — 3D Grid Arena</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <!-- Subtle CRT Scanlines -->
+  <div class="scanlines"></div>
+
+  <!-- First-Person Tactical Gameplay HUD Overlay (Active in [3] First-Person View) -->
+  <div id="cockpit-overlay">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="none">
+      <defs>
+        <filter id="hudGlow">
+          <feGaussianBlur stdDeviation="3" result="b" />
+          <feMerge>
+            <feMergeNode in="b" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <!-- Subtle Corner Visor Framing -->
+      <path d="M 35,130 L 35,55 L 135,55" fill="none" stroke="#00f3ff" stroke-width="3" opacity="0.45" filter="url(#hudGlow)" />
+      <path d="M 1565,130 L 1565,55 L 1465,55" fill="none" stroke="#00f3ff" stroke-width="3" opacity="0.45" filter="url(#hudGlow)" />
+      <path d="M 35,770 L 35,845 L 135,845" fill="none" stroke="#00f3ff" stroke-width="3" opacity="0.45" filter="url(#hudGlow)" />
+      <path d="M 1565,770 L 1565,845 L 1465,845" fill="none" stroke="#00f3ff" stroke-width="3" opacity="0.45" filter="url(#hudGlow)" />
+
+      <!-- Horizon Lane Guide Rails (converging toward center vanishing point without blocking view) -->
+      <line x1="560" y1="885" x2="735" y2="515" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="10,8" opacity="0.32" />
+      <line x1="1040" y1="885" x2="865" y2="515" stroke="#00f3ff" stroke-width="1.5" stroke-dasharray="10,8" opacity="0.32" />
+
+      <!-- Minimalist Center Horizon Pitch Ticks -->
+      <line x1="755" y1="450" x2="780" y2="450" stroke="#00f3ff" stroke-width="2" opacity="0.55" />
+      <line x1="820" y1="450" x2="845" y2="450" stroke="#00f3ff" stroke-width="2" opacity="0.55" />
+      <circle cx="800" cy="450" r="3" fill="#00f3ff" opacity="0.7" />
+
+      <!-- Bottom Cockpit Instrument Arc -->
+      <path d="M 460,900 Q 800,820 1140,900" fill="none" stroke="#00f3ff" stroke-width="2.5" opacity="0.5" filter="url(#hudGlow)" />
+    </svg>
+
+    <!-- Dynamic Tactical Telemetry Readouts for First-Person Play -->
+    <!-- Top Compass / Cardinal Heading Tape -->
+    <div id="fp-compass-box">
+      <span class="fp-sub-label">HEADING</span>
+      <span id="fp-heading-val">EAST (090&deg;)</span>
+      <span id="fp-enemy-bearing" class="fp-enemy-tag">CPU: AHEAD RIGHT</span>
+    </div>
+
+    <!-- Left Wing: Turn Clearance Sensor -->
+    <div id="fp-left-sensor" class="fp-side-sensor">
+      <div class="fp-sensor-header">&larr; [A] LEFT CLEARANCE</div>
+      <div id="fp-left-dist" class="fp-sensor-dist">95m</div>
+      <div class="fp-sensor-bar-bg">
+        <div id="fp-left-bar" class="fp-sensor-bar-fill"></div>
+      </div>
+      <div id="fp-left-status" class="fp-sensor-status">OPEN LANE</div>
+    </div>
+
+    <!-- Right Wing: Turn Clearance Sensor -->
+    <div id="fp-right-sensor" class="fp-side-sensor right">
+      <div class="fp-sensor-header">RIGHT CLEARANCE [D] &rarr;</div>
+      <div id="fp-right-dist" class="fp-sensor-dist">95m</div>
+      <div class="fp-sensor-bar-bg">
+        <div id="fp-right-bar" class="fp-sensor-bar-fill"></div>
+      </div>
+      <div id="fp-right-status" class="fp-sensor-status">OPEN LANE</div>
+    </div>
+
+    <!-- Center Forward Laser Rangefinder & Recommended Turn Prompt -->
+    <div id="fp-forward-Cluster">
+      <div id="fp-fwd-range">FWD RANGE: 148m</div>
+      <div id="fp-turn-advisor"></div>
+    </div>
+
+    <!-- Bottom Center Digital Dashboard (Speed + Boost Gauge) -->
+    <div id="fp-bottom-dash">
+      <div class="fp-dash-item">
+        <span class="fp-sub-label">VELOCITY</span>
+        <span id="fp-dash-speed">143 KM/H</span>
+      </div>
+      <div class="fp-dash-divider"></div>
+      <div class="fp-dash-item">
+        <span class="fp-sub-label">TURBINE BOOST [W / SPACE]</span>
+        <div class="fp-boost-track">
+          <div id="fp-dash-boost"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top HUD Bar -->
+  <div id="hud-top">
+    <!-- Left Box: Score & Boost Telemetry -->
+    <div class="hud-box">
+      <div class="hud-title">GRID TELEMETRY // TURBINE STATUS</div>
+      <div class="score-row">
+        <span id="score-player" class="score-item cyan">P1: 0</span>
+        <span id="score-ai" class="score-item orange">CPU: 0</span>
+      </div>
+      <div class="telemetry-row">
+        <div class="boost-bar-wrap" title="Boost Energy (Ride close to walls to slipstream-charge)">
+          <div id="boost-fill"></div>
+        </div>
+        <span id="speed-readout">142 KM/H</span>
+      </div>
+    </div>
+
+    <!-- Center Box: Live Camera Perspective Switcher & Sound Toggle -->
+    <div class="hud-box">
+      <div class="hud-title">CAMERA [1 / 2 / 3 / C] &amp; AUDIO [M]</div>
+      <div class="cam-switcher">
+        <button class="cam-btn active" data-hud-cam="BIRDS_EYE">[1] BIRD'S-EYE</button>
+        <button class="cam-btn" data-hud-cam="OVER_SHOULDER">[2] OVER-SHOULDER</button>
+        <button class="cam-btn" data-hud-cam="FIRST_PERSON">[3] FIRST-PERSON</button>
+        <button id="hud-sound-btn" class="cam-btn active" title="Toggle Sound [M]">SOUND: ON [M]</button>
+      </div>
+    </div>
+
+    <!-- Right Box: 2D Radar Minimap -->
+    <div id="radar-panel" class="hud-box orange">
+      <div id="cpu-label" class="hud-title">CPU (NOVICE)</div>
+      <canvas id="radar-canvas" width="136" height="136"></canvas>
+    </div>
+  </div>
+
+  <!-- Center Status / Intro / Countdown / Proximity Banners -->
+  <div id="center-banners">
+    <div id="intro-stage-banner">STAGE 01 // IGNITING HANDHELD CONTROL ROD</div>
+    <div id="countdown-banner">READY</div>
+    <div id="proximity-warning">! WALL PROXIMITY 12m !</div>
+  </div>
+
+  <!-- Bottom Controls Hint -->
+  <div id="hud-bottom">
+    <span id="controls-hint-text">
+      <strong>BIRD'S-EYE CONTROLS:</strong> [W/A/S/D] or [ARROWS] Cardinal Direction &bull; [SHIFT/SPACE] Boost &bull; [1/2/3 or C] Switch View
+    </span>
+  </div>
+
+  <!-- Start / Configuration Modal -->
+  <div id="start-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="game-logo">LIGHT CYCLE</div>
+      <div class="game-sub">ENTER THE GRID // PLAYER (CYAN) VS. CPU (ORANGE)</div>
+
+      <div class="option-section">
+        <span class="option-label">1. SELECT STARTING CAMERA PERSPECTIVE (SWITCH ANYTIME WITH 1/2/3 OR C)</span>
+        <div class="option-grid">
+          <div class="opt-card selected" data-cam-select="BIRDS_EYE">
+            <div class="opt-title">[1] Bird's-Eye</div>
+            <div class="opt-desc">Top-Down Tactical</div>
+          </div>
+          <div class="opt-card" data-cam-select="OVER_SHOULDER">
+            <div class="opt-title">[2] Over-Shoulder</div>
+            <div class="opt-desc">3rd-Person Chase Cam</div>
+          </div>
+          <div class="opt-card" data-cam-select="FIRST_PERSON">
+            <div class="opt-title">[3] First-Person</div>
+            <div class="opt-desc">Inside Canopy + Radar</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="option-section">
+        <span class="option-label">2. SELECT COMPUTER AI DIFFICULTY</span>
+        <div class="option-grid">
+          <div class="opt-card selected" data-diff-select="NOVICE">
+            <div class="opt-title">Novice</div>
+            <div class="opt-desc">Short Lookahead</div>
+          </div>
+          <div class="opt-card" data-diff-select="WARRIOR">
+            <div class="opt-title">Grid Warrior</div>
+            <div class="opt-desc">Space Flood + Cutoffs</div>
+          </div>
+          <div class="opt-card" data-diff-select="MCP">
+            <div class="opt-title">Master Control</div>
+            <div class="opt-desc">Aggressive Boost AI</div>
+          </div>
+        </div>
+      </div>
+
+      <label class="intro-toggle-row">
+        <span><strong>Handheld Control Rod Intro Animation</strong> (LEGO riders ignite rods &amp; rez cycles)</span>
+        <input type="checkbox" id="intro-checkbox" checked />
+      </label>
+
+      <label class="intro-toggle-row">
+        <span><strong>Synthesizer Sound Effects</strong> (Engine hum, rod ignition, turn chirp &amp; derezz)</span>
+        <input type="checkbox" id="sound-checkbox" checked />
+      </label>
+
+      <button id="launch-btn" class="primary-btn">INITIALIZE ROD &amp; LAUNCH</button>
+      <a href="storyboard.html" target="_blank" class="secondary-link">View 6-Panel Visual Storyboard &amp; Architecture Specs &rarr;</a>
+    </div>
+  </div>
+
+  <!-- Round Resolution / Derezz Modal -->
+  <div id="gameover-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div id="gameover-title" class="game-logo">CPU DEREZZED</div>
+      <div id="gameover-sub" class="game-sub">USER DOMINATES THE GRID</div>
+      <button id="rematch-btn" class="primary-btn" style="margin-bottom: 10px;">NEXT ROUND [SPACE]</button>
+      <button id="menu-btn" class="cam-btn" style="width: 100%; padding: 10px;">CONFIGURE CAMERA / DIFFICULTY</button>
+    </div>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script src="three.postprocessing.js"></script>
+  <script src="game.bundle.js?v=10"></script>
+</body>
+</html>
