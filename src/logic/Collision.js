@@ -51,6 +51,19 @@ export class CollisionSystem {
   }
 
   /**
+   * Checks if moving from prevPos to currPos collides with a power-up orb
+   */
+  checkPowerUpCollision(prevPos, currPos, powerUp, extraRadius = 0.85) {
+    if (!powerUp || powerUp.active === false) return false;
+    const cx = currPos.x;
+    const cz = currPos.y !== undefined ? currPos.y : currPos.z;
+    const px = prevPos ? prevPos.x : cx;
+    const pz = prevPos ? (prevPos.y !== undefined ? prevPos.y : prevPos.z) : cz;
+    const radius = (powerUp.radius !== undefined ? powerUp.radius : 2.2) + extraRadius;
+    return this.pointToSegmentDistance(powerUp.x, powerUp.z, px, pz, cx, cz) <= radius;
+  }
+
+  /**
    * Checks if moving from prevPos to currPos collides with arena bounds or any trail segment
    */
   checkCycleCollision(prevPos, currPos, allSegments, obstacles = []) {

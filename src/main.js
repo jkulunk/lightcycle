@@ -578,13 +578,18 @@ class TronGame {
     }
   }
 
-  checkPowerUpPickups(allCycles) {
+  checkPowerUpPickups(allCycles, prevPositions = null) {
     for (let i = this.arena.powerUps.length - 1; i >= 0; i--) {
       const pu = this.arena.powerUps[i];
       for (const cycle of allCycles) {
-        if (!cycle.alive) continue;
-        const dist = Math.hypot(cycle.pos.x - pu.x, cycle.pos.z - pu.z);
-        if (dist < 2.6) {
+        if (!cycle || !cycle.alive) continue;
+        if (
+          this.collision.checkPowerUpCollision(
+            prevPositions ? prevPositions.get(cycle) : null,
+            cycle.pos,
+            pu
+          )
+        ) {
           this.applyPowerUp(cycle, pu);
           this.arena.removePowerUp(pu);
           break;
@@ -602,6 +607,7 @@ class TronGame {
     const stageBanner = document.getElementById('intro-stage-banner');
     if (pu.type === 'OVERCHARGE') {
       cycle.boostEnergy = 100;
+      cycle.overchargeTimer = 3.5;
       if (cycle.isPlayer) {
         stageBanner.style.display = 'block';
         stageBanner.textContent = 'POWER-UP // TURBINE OVERCHARGE (100% BOOST)';
@@ -623,7 +629,8 @@ class TronGame {
     }
 
     if (cycle.isPlayer) {
-      setTimeout(() => {
+      if (this.powerUpBannerTimeout) clearTimeout(this.powerUpBannerTimeout);
+      this.powerUpBannerTimeout = setTimeout(() => {
         if (this.state === 'PLAYING') stageBanner.style.display = 'none';
       }, 1800);
     }
@@ -723,6 +730,8 @@ class TronGame {
     let statusTag = '';
     if (this.player.phaseShiftTimer > 0) {
       statusTag = ` [PHASE ${this.player.phaseShiftTimer.toFixed(1)}s]`;
+    } else if (this.player.overchargeTimer > 0) {
+      statusTag = ` [OVERCHARGE ${this.player.overchargeTimer.toFixed(1)}s]`;
     } else if (this.player.inSlipstream) {
       statusTag = ' [SLIPSTREAM +]';
     } else if (this.player.isBraking) {
@@ -907,7 +916,7 @@ class TronGame {
     // Draw Power-Ups on Radar
     this.arena.powerUps.forEach((pu) => {
       const pp = toRadar(pu.x, pu.z);
-      ctx.fillStyle = '#00ff88';
+      ctx.fillStyle = '#' + pu.color.toString(16).padStart(6, '0');
       ctx.beginPath();
       ctx.arc(pp.x, pp.y, 2.5, 0, Math.PI * 2);
       ctx.fill();
@@ -1026,13 +1035,13 @@ class TronGame {
       allCycles.forEach((c) => {
         if (!c.alive) return;
         c.update(dt, this.audio);
-        if (c.isBoosting || c.inSlipstream) {
+        if (c.isBoosting || c.inSlipstream || c.overchargeTimer > 0) {
           this.particles.spawnBoostSpark(c.pos.x, c.pos.y, c.dir.x, c.dir.y, c.color);
         }
       });
 
       // Check Power-Up Pickups
-      this.checkPowerUpPickups(allCycles);
+      this.checkPowerUpPickups(allCycles, prevPositions);
 
       // Check Collisions for Player & AI Cycles
       let playerHit = false;
@@ -1085,7 +1094,7 @@ class TronGame {
         // Head-on with player
         if (this.player.pos.distanceTo(ai.pos) < 1.35) {
           if (this.player.phaseShiftTimer <= 0) playerHit = true;
-          aiHit = true;
+          if (ai.phaseShiftTimer <= 0) aiHit = true;
         }
 
         if (aiHit) {

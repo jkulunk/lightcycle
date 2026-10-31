@@ -17,6 +17,7 @@ export class LightCycle {
     this.brakeSpeed = 24;
     this.isBraking = false;
     this.phaseShiftTimer = 0;
+    this.overchargeTimer = 0;
     this.inVictory = false;
     this.wallHeight = 2.6;
 
@@ -752,6 +753,7 @@ export class LightCycle {
     this.isBoosting = false;
     this.isBraking = false;
     this.phaseShiftTimer = 0;
+    this.overchargeTimer = 0;
     this.inVictory = false;
     this.boostEnergy = 100;
     this.inSlipstream = false;
@@ -1191,7 +1193,15 @@ export class LightCycle {
       if (audio) audio.playTurn(this.isPlayer);
     }
 
-    if (this.isBoosting && this.boostEnergy > 0) {
+    if (this.overchargeTimer > 0) {
+      this.overchargeTimer = Math.max(0, this.overchargeTimer - dt);
+      this.boostEnergy = 100;
+    }
+
+    if (this.overchargeTimer > 0) {
+      this.currentSpeed = this.boostSpeed;
+      this.boostEnergy = 100;
+    } else if (this.isBoosting && this.boostEnergy > 0) {
       this.currentSpeed = this.boostSpeed;
       this.boostEnergy = Math.max(0, this.boostEnergy - dt * 36);
     } else if (this.isBraking) {
